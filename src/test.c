@@ -155,6 +155,53 @@ static void test_soft_keys(void) {
     soft_keys_frame(&u, &in, &s);
     expect(px(&u, 114, 12) == UI_HL, "second soft key");
     expect(px(&u, 12, 12) == UI_BOX, "first soft key idle");
+
+    const char *labels[3] = {"A", "B", "C"};
+    struct ui_soft_style hold = {
+        .fill = UI_BOX, .text = UI_TEXT, .active_text = UI_BG, .highlight = UI_HL, .gap = 4,
+        .feedback = UI_SOFT_HOLD,
+    };
+    struct ui_soft_style flash = hold;
+    flash.feedback = UI_SOFT_FLASH;
+    flash.flash_ms = 100;
+    struct ui_soft_state ks = {0};
+    int active = 0;
+    struct input key = blank();
+    u.now_ms = 1000;
+    key.down = 1u << IN_B3;
+    key.held = 1u << IN_B3;
+    ui_clear(&u, UI_BG);
+    ui_soft_keys(&u, 8, 8, 304, 32, labels, &active, hold, &key, 0);
+    expect(px(&u, 220, 12) == UI_HL, "held key stays lit");
+    key.down = 0;
+    ui_clear(&u, UI_BG);
+    ui_soft_keys(&u, 8, 8, 304, 32, labels, &active, hold, &key, 0);
+    expect(px(&u, 220, 12) == UI_HL, "held key follows the finger");
+    key.held = 0;
+    ui_clear(&u, UI_BG);
+    ui_soft_keys(&u, 8, 8, 304, 32, labels, &active, hold, &key, 0);
+    expect(px(&u, 220, 12) == UI_BOX, "released key goes dark");
+
+    u.now_ms = 5000;
+    key.down = 1u << IN_B3;
+    key.held = 1u << IN_B3;
+    ui_clear(&u, UI_BG);
+    ui_soft_keys(&u, 8, 8, 304, 32, labels, &active, flash, &key, &ks);
+    expect(px(&u, 220, 12) == UI_HL, "flash lights on the press");
+    expect(u.wake_ms == 100, "flash asks for another frame");
+    u.now_ms = 5050;
+    key.down = 0;
+    ui_clear(&u, UI_BG);
+    u.wake_ms = 0;
+    ui_soft_keys(&u, 8, 8, 304, 32, labels, &active, flash, &key, &ks);
+    expect(px(&u, 220, 12) == UI_HL, "flash ignores a held finger");
+    expect(u.wake_ms == 50, "flash keeps the remaining time");
+    u.now_ms = 5100;
+    ui_clear(&u, UI_BG);
+    u.wake_ms = 0;
+    ui_soft_keys(&u, 8, 8, 304, 32, labels, &active, flash, &key, &ks);
+    expect(px(&u, 220, 12) == UI_BOX, "flash ends while the finger is down");
+    expect(u.wake_ms == 0, "finished flash does not ask for a frame");
 }
 
 static void test_knobs(void) {

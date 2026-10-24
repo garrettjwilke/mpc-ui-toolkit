@@ -18,7 +18,7 @@ static void present(struct screen *scr, const uint32_t *front, int rects[][4], i
 }
 
 static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struct surface *midi, ui_frame frame,
-                      const struct input *in, void *state) {
+                      const struct input *in, void *state, int *wake_ms) {
     struct ui u = {.px = back};
     int quit = frame(&u, in, state);
     int rects[UI_H][4];
@@ -26,6 +26,7 @@ static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struc
     present(scr, front, rects, n);
     for (int i = 0; i < u.nled; i++)
         surface_pad(midi, u.led[i].index, u.led[i].r, u.led[i].g, u.led[i].b);
+    if (wake_ms) *wake_ms = u.wake_ms;
     return quit;
 }
 
@@ -65,20 +66,26 @@ int app_run(ui_frame frame, void *state) {
     struct parser parser = {0};
     struct input in;
     input_begin(&in, &dev);
-    int quit = draw_frame(&scr, back, front, &midi, frame, &in, state);
+    int wake = 0;
+    int quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
 
     while (!quit) {
         struct pollfd pfd = {.fd = midi.fd, .events = POLLIN};
-        int pr = poll(&pfd, 1, 50);
+        int pr = poll(&pfd, 1, wake > 0 ? wake : 50);
         if (pr < 0) {
             if (errno == EINTR) continue;
             break;
         }
-        if (pr == 0) continue;
+        if (pr == 0) {
+            if (wake <= 0) continue;
+            input_begin(&in, &dev);
+            quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
+            continue;
+        }
         int got = read_frame(&midi, &parser, &dev, &in);
         if (got < 0) break;
         if (!got) continue;
-        quit = draw_frame(&scr, back, front, &midi, frame, &in, state);
+        quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
     }
 
     surface_all_off(&midi);

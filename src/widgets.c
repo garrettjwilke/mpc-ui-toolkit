@@ -28,21 +28,38 @@ static void center_text(struct ui *u, int x, int y, int w, int h, const char *s,
     ui_text(u, tx, ty, s ? s : "", color, 1);
 }
 
+static const int soft_button[3] = {IN_B1, IN_B2, IN_B3};
+
 int ui_soft_keys(struct ui *u, int x, int y, int w, int h, const char *labels[3], int *active,
-                 struct ui_soft_style st, const struct input *in) {
+                 struct ui_soft_style st, const struct input *in, struct ui_soft_state *ks) {
     int pressed = -1;
-    if (in && active) {
-        if (input_down(in, IN_B1)) *active = 0, pressed = 0;
-        if (input_down(in, IN_B2)) *active = 1, pressed = 1;
-        if (input_down(in, IN_B3)) *active = 2, pressed = 2;
+    int lit[3] = {0, 0, 0};
+    if (st.feedback == UI_SOFT_STICKY) {
+        if (in && active) {
+            if (input_down(in, IN_B1)) *active = 0, pressed = 0;
+            if (input_down(in, IN_B2)) *active = 1, pressed = 1;
+            if (input_down(in, IN_B3)) *active = 2, pressed = 2;
+        }
+        int on = active ? *active : 0;
+        if (on >= 0 && on < 3) lit[on] = 1;
+    } else if (in || ks) {
+        for (int i = 0; i < 3; i++) {
+            int edge = in && input_down(in, soft_button[i]);
+            int held = in && ((in->held >> soft_button[i]) & 1);
+            if (edge) {
+                pressed = i;
+                if (active) *active = i;
+            }
+            int64_t *at = ks ? &ks->at[i] : 0;
+            lit[i] = ui_feedback(u, held, edge, st.feedback, st.flash_ms, at);
+        }
     }
-    int on = active ? *active : 0;
     for (int i = 0; i < 3; i++) {
         int cx, cw;
         third(x, w, st.gap, i, &cx, &cw);
-        struct ui_paint p = {.fill_set = 1, .fill = i == on ? st.highlight : st.fill};
+        struct ui_paint p = {.fill_set = 1, .fill = lit[i] ? st.highlight : st.fill};
         ui_box(u, cx, y, cw, h, p);
-        center_text(u, cx, y, cw, h, labels ? labels[i] : "", i == on ? st.active_text : st.text);
+        center_text(u, cx, y, cw, h, labels ? labels[i] : "", lit[i] ? st.active_text : st.text);
     }
     return pressed;
 }

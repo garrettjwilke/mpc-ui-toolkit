@@ -2,6 +2,7 @@
 #include "font.h"
 #include "input.h"
 #include <string.h>
+#include <time.h>
 
 static uint32_t rgb(uint32_t c) { return c & 0x00ffffff; }
 
@@ -154,4 +155,35 @@ int ui_changes(const uint32_t *back, uint32_t *front, int rects[][4]) {
         n++;
     }
     return n;
+}
+
+void ui_wake(struct ui *u, int ms) {
+    if (!u || ms < 1) return;
+    if (u->wake_ms < 1 || ms < u->wake_ms) u->wake_ms = ms;
+}
+
+static int64_t ui_now(struct ui *u) {
+    if (u && u->now_ms) return u->now_ms;
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+int ui_feedback(struct ui *u, int held, int edge, int mode, int flash_ms, int64_t *at) {
+    if (mode == UI_FEEDBACK_HOLD) return held || edge;
+    if (mode != UI_FEEDBACK_FLASH) return 0;
+    if (flash_ms <= 0) flash_ms = 120;
+    int64_t now = ui_now(u);
+    if (edge && at && now) *at = now;
+    if (!at) {
+        if (edge) ui_wake(u, flash_ms);
+        return edge;
+    }
+    if (!*at || !now) return edge;
+    int64_t age = now - *at;
+    if (age < 0 || age >= flash_ms) return 0;
+    int left = (int)(flash_ms - age);
+    if (left < 1) left = 1;
+    ui_wake(u, left);
+    return 1;
 }

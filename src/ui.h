@@ -39,7 +39,24 @@ struct ui {
     uint32_t *px; // UI_W * UI_H, tightly packed
     struct ui_led led[16];
     int nled;
+    int64_t now_ms; // 0 reads the clock. A test can set a fake time.
+    int wake_ms;    // widgets ask for another frame this soon. 0 means no request.
 };
+
+enum {
+    UI_FEEDBACK_HOLD = 1,  // draw pressed while the control is held
+    UI_FEEDBACK_FLASH = 2  // draw pressed for a short time after the press, then stop
+};
+
+// Asks the frame loop for another frame within ms. The soonest request wins.
+void ui_wake(struct ui *u, int ms);
+
+// 1 when a control should draw pressed.
+// held is the physical state, edge is the press this frame.
+// UI_FEEDBACK_HOLD follows the finger. UI_FEEDBACK_FLASH lights for flash_ms
+// (120 when flash_ms is 0) after the edge and then goes dark even if the finger stays.
+// *at stores the press time for a flash. NULL flashes for this call only.
+int ui_feedback(struct ui *u, int held, int edge, int mode, int flash_ms, int64_t *at);
 
 struct input;
 

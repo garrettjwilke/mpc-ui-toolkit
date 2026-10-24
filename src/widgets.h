@@ -3,15 +3,30 @@
 #pragma once
 #include "ui.h"
 
+enum {
+    UI_SOFT_STICKY = 0,             // the last press stays lit
+    UI_SOFT_HOLD = UI_FEEDBACK_HOLD,   // lit while that key is down
+    UI_SOFT_FLASH = UI_FEEDBACK_FLASH  // lit briefly after the press, then dark
+};
+
 struct ui_soft_style {
     uint32_t fill, text, active_text, highlight;
     int gap;
+    int feedback; // UI_SOFT_*. 0 keeps the last press lit.
+    int flash_ms; // UI_SOFT_FLASH length. 0 is 120 ms.
 };
 
-// labels has 3 strings. *active is the highlighted key and is updated on B1/B2/B3.
+// Press times for UI_SOFT_FLASH. Zero means that key has not been pressed.
+struct ui_soft_state {
+    int64_t at[3];
+};
+
+// labels has 3 strings. *active is the highlighted key and is updated on B1/B2/B3
+// while feedback is UI_SOFT_STICKY. HOLD and FLASH light each key on its own.
+// ks may be NULL. FLASH uses it so the light survives later events until flash_ms.
 // Returns 0, 1, or 2 when that key was pressed, otherwise -1.
 int ui_soft_keys(struct ui *u, int x, int y, int w, int h, const char *labels[3], int *active,
-                 struct ui_soft_style st, const struct input *in);
+                 struct ui_soft_style st, const struct input *in, struct ui_soft_state *ks);
 
 struct ui_knob_style {
     uint32_t fill, text, name, border, highlight;
