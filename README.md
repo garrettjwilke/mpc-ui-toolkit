@@ -36,6 +36,8 @@ Each widget stays inside the rectangle you pass.
 - `ui_knobs` draws three value boxes for K1, K2, and K3. You own the three `float` values (0..1) and the text callback. The encoder moves focus. Plus and Minus step by `step`. A knob does not jump: it follows only after it crosses the current value. `struct ui_knob_state` `.last` starts at -1.
 - `ui_list` scrolls rows. `row_h` is the row size. The encoder moves, encoder press returns that row, and the current row gets an outline plus an optional fill. When the rows do not fit, a bar on the right shows where that window sits in the list. The thumb uses the highlight color.
 - `ui_pads` fits a 4×4 grid to the rect, pad 1 at the bottom left. A hit stores a color (blue when soft, red when hard). Pressure brightens the cell while it is held.
+- `ui_grid` draws a columns-by-rows board in the rect. You pass the labels and, if you want, a fill for each cell. `block` draws a heavier line every N cells, which is how a Sudoku board marks its 3×3s. `cursor` outlines one cell. `band_cell` outlines the block that contains that cell.
+- `ui_pad_modes` retargets a cluster of pads while another pad is held. You list the cluster in logical order, the hold for each mode, and any tap pads. The first hold that is down wins. A cluster hit returns that slot only while a hold is down. A tap returns only when none is. A hit does not replace the color. Owned pads are sent to the LEDs on that frame, and a held pad brightens. `selected` paints one cluster slot in `selected_color` while a mode is armed.
 - `ui_menu` shows rows only while a button combination is held. Let go and the rows disappear. The wheel moves. Encoder press chooses the highlighted row. Each row can also name a pad and a key.
 
 `hold` is every button that has to be down. `items`, `n`, and `hold` can be replaced on any frame. `ui_menu_prepare` fills those in once, and leaves a later change alone. `pad` `-1` uses the row number (pad 1 is the first row). A row's `key` is an `IN_*` button, or `-1`.
@@ -60,7 +62,9 @@ While the menu is open its pads light. Releasing the combination turns those pad
 
 ## Examples
 
-Each file is one screen and one idea. `make` builds nine static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+Each file is one screen and one idea. `make` builds ten static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`, `sudoku`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+
+`sudoku` is a game on `ui_grid` and `ui_pad_modes`. The top-left 3×3 of pads is the cluster. Hold pad 16 and tap it to pick a block, pad 12 to pick a cell inside that block, and pad 8 to enter 1–9. Pads 1–4 are undo, restart, new, and clear. Hold Shift and Quit, as in the other examples.
 
 `anim` slides a block along a track and asks for another frame in 16 ms. The panel is an SPI ST7796S. One update carries every changed row. A full 320×240 frame is about 50 ms on the wire, so a full-screen wipe stays near 20 frames per second. The block is small, and only the rows it leaves and enters are sent.
 

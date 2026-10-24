@@ -2,6 +2,7 @@
 #include "input.h"
 #include "ui.h"
 #include "widgets.h"
+#include "../examples/sudoku.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -74,6 +75,8 @@ int main(void) {
     rc |= shot("knobs", knobs_frame, &knobs);
     rc |= shot("list", list_frame, &list);
     rc |= shot("anim", anim_frame, &anim);
+    struct sudoku_state sudoku = {0};
+    rc |= shot("sudoku", sudoku_frame, &sudoku);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};

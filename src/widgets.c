@@ -228,6 +228,99 @@ static void led_of(struct ui *u, int index, uint32_t c) {
     ui_led(u, index, (int)((c >> 17) & 0x7f), (int)((c >> 9) & 0x7f), (int)((c >> 1) & 0x7f));
 }
 
+static void grid_cell(int x, int y, int w, int h, int gap, int cols, int rows, int col, int row, int *ox,
+                      int *oy, int *ow, int *oh) {
+    if (cols < 1) cols = 1;
+    if (rows < 1) rows = 1;
+    if (gap < 0) gap = 0;
+    int gw = cols > 1 ? gap * (cols - 1) : 0;
+    int gh = rows > 1 ? gap * (rows - 1) : 0;
+    int inner_w = w > gw ? w - gw : 0;
+    int inner_h = h > gh ? h - gh : 0;
+    int cw = inner_w / cols;
+    int ch = inner_h / rows;
+    int extra_w = inner_w - cw * cols;
+    int extra_h = inner_h - ch * rows;
+    *ow = col == cols - 1 ? cw + extra_w : cw;
+    *oh = row == rows - 1 ? ch + extra_h : ch;
+    *ox = x + col * (cw + gap);
+    *oy = y + row * (ch + gap);
+}
+
+static void paint_rule(struct ui *u, int x, int y, int w, int h, int rx, int ry, int rw, int rh, uint32_t color) {
+    int x0 = rx < x ? x : rx;
+    int y0 = ry < y ? y : ry;
+    int x1 = rx + rw > x + w ? x + w : rx + rw;
+    int y1 = ry + rh > y + h ? y + h : ry + rh;
+    if (x1 <= x0 || y1 <= y0) return;
+    fill_row(u, x0, y0, x1 - x0, y1 - y0, color);
+}
+
+static void block_rules(struct ui *u, int x, int y, int w, int h, int gap, int cols, int rows, int block, int thick,
+                        uint32_t color) {
+    if (block <= 0 || thick <= 0) return;
+    for (int c = block; c < cols; c += block) {
+        int x0, y0, cw, ch;
+        grid_cell(x, y, w, h, gap, cols, rows, c - 1, 0, &x0, &y0, &cw, &ch);
+        int gx = x0 + cw;
+        int lx = gx + (gap - thick) / 2;
+        paint_rule(u, x, y, w, h, lx, y, thick, h, color);
+    }
+    for (int r = block; r < rows; r += block) {
+        int x0, y0, cw, ch;
+        grid_cell(x, y, w, h, gap, cols, rows, 0, r - 1, &x0, &y0, &cw, &ch);
+        int gy = y0 + ch;
+        int ly = gy + (gap - thick) / 2;
+        paint_rule(u, x, y, w, h, x, ly, w, thick, color);
+    }
+}
+
+static void outline_band(struct ui *u, int x, int y, int w, int h, int gap, int cols, int rows, int block, int cell,
+                         uint32_t color, int thick) {
+    if (block <= 0 || cell < 0 || cell >= cols * rows || thick <= 0) return;
+    int col = cell % cols;
+    int row = cell / cols;
+    int bc = col - col % block;
+    int br = row - row % block;
+    int ec = bc + block - 1;
+    int er = br + block - 1;
+    if (ec >= cols) ec = cols - 1;
+    if (er >= rows) er = rows - 1;
+    int x0, y0, w0, h0, x1, y1, w1, h1;
+    grid_cell(x, y, w, h, gap, cols, rows, bc, br, &x0, &y0, &w0, &h0);
+    grid_cell(x, y, w, h, gap, cols, rows, ec, er, &x1, &y1, &w1, &h1);
+    ui_highlight(u, x0, y0, x1 + w1 - x0, y1 + h1 - y0, color, thick);
+}
+
+void ui_grid(struct ui *u, int x, int y, int w, int h, int cols, int rows, const char **labels, const uint32_t *fills,
+             int cursor, int band_cell, struct ui_grid_style st) {
+    if (!u || cols < 1 || rows < 1 || w <= 0 || h <= 0) return;
+    int gap = st.gap > 0 ? st.gap : 0;
+    int n = cols * rows;
+    fill_row(u, x, y, w, h, st.line);
+    for (int i = 0; i < n; i++) {
+        int cx, cy, cw, ch;
+        grid_cell(x, y, w, h, gap, cols, rows, i % cols, i / cols, &cx, &cy, &cw, &ch);
+        uint32_t fill = fills ? fills[i] : st.fill;
+        fill_row(u, cx, cy, cw, ch, fill);
+    }
+    int thick = st.block > 0 ? (st.block_px > 0 ? st.block_px : 2) : 0;
+    block_rules(u, x, y, w, h, gap, cols, rows, st.block, thick, st.block_line);
+    for (int i = 0; i < n; i++) {
+        if (!labels || !labels[i] || !labels[i][0]) continue;
+        int cx, cy, cw, ch;
+        grid_cell(x, y, w, h, gap, cols, rows, i % cols, i / cols, &cx, &cy, &cw, &ch);
+        center_text(u, cx, cy, cw, ch, labels[i], st.text);
+    }
+    int edge = st.cursor_px > 0 ? st.cursor_px : 1;
+    outline_band(u, x, y, w, h, gap, cols, rows, st.block, band_cell, st.band, edge);
+    if (cursor >= 0 && cursor < n && edge > 0) {
+        int cx, cy, cw, ch;
+        grid_cell(x, y, w, h, gap, cols, rows, cursor % cols, cursor / cols, &cx, &cy, &cw, &ch);
+        ui_highlight(u, cx, cy, cw, ch, st.cursor, edge);
+    }
+}
+
 void ui_pads(struct ui *u, int x, int y, int w, int h, uint32_t colors[16], struct ui_pad_style st,
              const struct input *in) {
     if (!colors) return;
@@ -249,6 +342,109 @@ void ui_pads(struct ui *u, int x, int y, int w, int h, uint32_t colors[16], stru
         if (hit || in->pad_pressure[i] >= 0) led_of(u, i, shown);
         else if (in->pad_release[i]) led_of(u, i, colors[i]);
     }
+}
+
+enum { PAD_NONE, PAD_GROUP, PAD_MOD, PAD_TAP };
+
+static int pad_held(const struct input *in, int pad) {
+    if (!in || pad < 0 || pad > 15) return 0;
+    return in->pad_down[pad] || in->pad_hit[pad] >= 0;
+}
+
+static int held_pressure(const struct input *in, int pad) {
+    if (!pad_held(in, pad)) return 0;
+    if (in->pad_pressure[pad] >= 0) return in->pad_pressure[pad];
+    if (in->pad_at[pad] > 0) return in->pad_at[pad];
+    return 48;
+}
+
+struct ui_pad_hit ui_pad_modes(struct ui *u, int x, int y, int w, int h, const int *group, int n,
+                               const struct ui_pad_mode *modes, int nmodes, const struct ui_pad_tap *taps, int ntaps,
+                               struct ui_pad_mode_style st, const struct input *in) {
+    struct ui_pad_hit hit = {-1, -1, -1};
+    if (!u) return hit;
+    if (!group) n = 0;
+    if (!modes) nmodes = 0;
+    if (!taps) ntaps = 0;
+    if (n < 0) n = 0;
+    if (nmodes < 0) nmodes = 0;
+    if (ntaps < 0) ntaps = 0;
+
+    int role[16], slot_of[16], mode_of[16], tap_of[16];
+    for (int i = 0; i < 16; i++) role[i] = PAD_NONE, slot_of[i] = mode_of[i] = tap_of[i] = -1;
+    for (int i = 0; i < n; i++) {
+        int p = group[i];
+        if (p < 0 || p > 15 || role[p] != PAD_NONE) continue;
+        role[p] = PAD_GROUP;
+        slot_of[p] = i;
+    }
+    for (int i = 0; i < nmodes; i++) {
+        int p = modes[i].pad;
+        if (p < 0 || p > 15) continue;
+        role[p] = PAD_MOD;
+        mode_of[p] = i;
+    }
+    for (int i = 0; i < ntaps; i++) {
+        int p = taps[i].pad;
+        if (p < 0 || p > 15 || role[p] == PAD_MOD) continue;
+        role[p] = PAD_TAP;
+        tap_of[p] = i;
+    }
+
+    if (in) {
+        for (int i = 0; i < nmodes; i++) {
+            if (!pad_held(in, modes[i].pad)) continue;
+            hit.mode = i;
+            break;
+        }
+        if (hit.mode >= 0) {
+            for (int i = 0; i < n; i++) {
+                int p = group[i];
+                if (p < 0 || p > 15 || role[p] != PAD_GROUP) continue;
+                if (in->pad_hit[p] < 0) continue;
+                hit.slot = i;
+                break;
+            }
+        } else {
+            for (int i = 0; i < ntaps; i++) {
+                int p = taps[i].pad;
+                if (p < 0 || p > 15 || role[p] != PAD_TAP) continue;
+                if (in->pad_hit[p] < 0) continue;
+                hit.tap = i;
+                break;
+            }
+        }
+    }
+
+    for (int p = 0; p < 16; p++) {
+        uint32_t color = 0x000000;
+        const char *label = 0;
+        if (role[p] == PAD_GROUP) {
+            if (hit.mode >= 0) {
+                color = modes[hit.mode].color;
+                if (slot_of[p] == st.selected) color = st.selected_color;
+                if (modes[hit.mode].names) label = modes[hit.mode].names[slot_of[p]];
+            } else {
+                color = st.idle;
+            }
+        } else if (role[p] == PAD_MOD) {
+            int mi = mode_of[p];
+            color = pad_held(in, p) ? modes[mi].held : st.mod_idle;
+            label = modes[mi].label;
+        } else if (role[p] == PAD_TAP) {
+            color = taps[tap_of[p]].color;
+            label = taps[tap_of[p]].label;
+        }
+        if (role[p] != PAD_NONE) color = brighten(color, held_pressure(in, p));
+        int cx, cy, cw, ch;
+        pad_cell(x, y, w, h, st.gap, p, &cx, &cy, &cw, &ch);
+        struct ui_paint box = {.fill_set = 1, .fill = color, .border_set = st.border_px > 0, .border = st.border,
+                               .border_px = st.border_px};
+        ui_box(u, cx, cy, cw, ch, box);
+        if (label && label[0]) center_text(u, cx, cy, cw, ch, label, st.text);
+        if (in && role[p] != PAD_NONE) led_of(u, p, color);
+    }
+    return hit;
 }
 
 static int bound_pad(const struct ui_menu_item *it, int index) {

@@ -20,8 +20,8 @@ DEV = $(BUILD)/device
 ZIGCC = zig cc -target aarch64-linux-musl
 ZIGCFLAGS = -O2 -D_DEFAULT_SOURCE $(WARN) -I src
 
-EXAMPLES = clear boxes buttons highlight soft_keys knobs list pads anim
-BINS = clear boxes buttons highlight soft-keys knobs list pads anim
+EXAMPLES = clear boxes buttons highlight soft_keys knobs list pads anim sudoku
+BINS = clear boxes buttons highlight soft-keys knobs list pads anim sudoku
 
 .PHONY: all test preview clean
 
@@ -83,6 +83,7 @@ $(eval $(call device,knobs,knobs))
 $(eval $(call device,list,list))
 $(eval $(call device,pads,pads))
 $(eval $(call device,anim,anim))
+$(eval $(call device,sudoku,sudoku))
 
 $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/examples $(BIN) $(BUILD)/shots:
 	mkdir -p $@
@@ -92,4 +93,4 @@ $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/exam
 clean:
 	rm -rf $(BUILD) $(BIN) \
 	       ui-test ui-test.dSYM preview-bin preview-bin.dSYM shots \
-	       clear boxes buttons highlight soft-keys knobs list pads anim *.dSYM
+	       clear boxes buttons highlight soft-keys knobs list pads anim sudoku *.dSYM

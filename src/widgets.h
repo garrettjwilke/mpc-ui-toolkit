@@ -72,6 +72,60 @@ struct ui_pad_style {
 void ui_pads(struct ui *u, int x, int y, int w, int h, uint32_t colors[16], struct ui_pad_style st,
              const struct input *in);
 
+struct ui_grid_style {
+    uint32_t fill, text, line, block_line, cursor, band;
+    int gap;       // pixels between cells
+    int block;     // heavier line every N cells. 0 draws none.
+    int block_px;  // thickness of that line. 0 means 2 when block is set.
+    int cursor_px; // outline thickness for the cell and its block. 0 means 1.
+};
+
+// Draws a cols-by-rows board inside the rect. labels and fills are row-major
+// and may be NULL. A NULL label is an empty cell. fills NULL uses style fill.
+// cursor outlines that cell, or -1. band_cell outlines the block around that
+// cell when block is set, or -1. The block line is only the rule between groups.
+void ui_grid(struct ui *u, int x, int y, int w, int h, int cols, int rows, const char **labels,
+             const uint32_t *fills, int cursor, int band_cell, struct ui_grid_style st);
+
+// One way a held pad retargets a cluster. pad is the hold. color is the cluster
+// while this mode is armed. held is this pad's color while it is down.
+// names has one caption per cluster slot, or is NULL.
+struct ui_pad_mode {
+    int pad;
+    uint32_t color, held;
+    const char *label;
+    const char **names;
+};
+
+// A pad that reports a tap when no mode is armed.
+struct ui_pad_tap {
+    int pad;
+    uint32_t color;
+    const char *label;
+};
+
+struct ui_pad_mode_style {
+    int gap, border_px;
+    uint32_t border, idle, mod_idle, text;
+    int selected; // cluster slot to paint while a mode is armed, or -1
+    uint32_t selected_color;
+};
+
+struct ui_pad_hit {
+    int mode; // armed mode, or -1
+    int slot; // cluster index hit this frame, or -1
+    int tap;  // tap index, or -1
+};
+
+// group lists physical pads in logical order. The first held mode in the list wins.
+// A cluster hit counts only while a mode is armed. Taps count only when none is.
+// A hit does not replace colors. Owned pads are sent with ui_led on every draw
+// that has input. A held pad brightens. Pass NULL input to draw without LEDs or hits.
+// Pads not listed stay dark and unlabeled, and their LEDs are left alone.
+struct ui_pad_hit ui_pad_modes(struct ui *u, int x, int y, int w, int h, const int *group, int n,
+                               const struct ui_pad_mode *modes, int nmodes, const struct ui_pad_tap *taps,
+                               int ntaps, struct ui_pad_mode_style st, const struct input *in);
+
 // Suggested id for a Quit row. ui_menu returns the item's own id, so any value other than -1 works.
 enum { UI_MENU_QUIT = 1 };
 

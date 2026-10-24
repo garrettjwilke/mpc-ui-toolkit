@@ -2,6 +2,7 @@
 #include "input.h"
 #include "ui.h"
 #include "widgets.h"
+#include "../examples/sudoku.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -362,6 +363,196 @@ static void test_pads(void) {
     expect(u.nled >= 1 && u.led[0].index == 0 && u.led[0].r > 60, "pad led queued");
 }
 
+static void test_grid(void) {
+    static uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    struct ui_grid_style st = {
+        .fill = 0x111111,
+        .text = 0xffffff,
+        .line = 0x222222,
+        .block_line = 0xff0000,
+        .cursor = 0x00ff00,
+        .band = 0x0000ff,
+        .gap = 2,
+        .block = 3,
+        .block_px = 2,
+        .cursor_px = 2,
+    };
+    const char *labels[81] = {0};
+    labels[4] = "5";
+    uint32_t fills[81];
+    for (int i = 0; i < 81; i++) fills[i] = 0x111111;
+    fills[8] = 0xabcdee;
+    ui_clear(&u, UI_BG);
+    ui_grid(&u, 10, 10, 160, 160, 9, 9, labels, fills, 3, 0, st);
+    expect(px(&u, 10, 10) == 0x0000ff, "block outline");
+    expect(px(&u, 12, 12) == 0x111111, "cell inside the block");
+    expect(px(&u, 26, 20) == 0x222222, "thin grid line");
+    expect(px(&u, 62, 20) == 0xff0000, "heavy block line");
+    expect(px(&u, 64, 10) == 0x00ff00, "cursor outline");
+    expect(px(&u, 66, 12) == 0x111111, "cell inside the cursor");
+    expect(px(&u, 156, 12) == 0xabcdee, "per-cell fill");
+    int digit = 0;
+    for (int y = 10; y < 26 && !digit; y++)
+        for (int x = 82; x < 98; x++)
+            if (px(&u, x, y) == 0xffffff) digit = 1;
+    expect(digit, "cell label");
+
+    st.block = 0;
+    ui_clear(&u, UI_BG);
+    ui_grid(&u, 10, 10, 160, 160, 9, 9, labels, fills, 3, 0, st);
+    expect(px(&u, 10, 10) == 0x111111, "no block outline without a block size");
+    expect(px(&u, 62, 20) == 0x222222, "no heavy line without a block size");
+}
+
+static void test_pad_modes(void) {
+    static uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    const int group[9] = {12, 13, 14, 8, 9, 10, 4, 5, 6};
+    const char *names[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    struct ui_pad_mode modes[2] = {
+        {.pad = 7, .color = 0x00aa00, .held = 0x00ff00, .label = "Nu", .names = names},
+        {.pad = 15, .color = 0x0000aa, .held = 0x0000ff, .label = "Bl"},
+    };
+    struct ui_pad_tap taps[1] = {{.pad = 0, .color = 0xaaaaaa, .label = "Un"}};
+    struct ui_pad_mode_style st = {
+        .gap = 0,
+        .border_px = 0,
+        .idle = 0x111111,
+        .mod_idle = 0x222222,
+        .text = 0xffffff,
+        .selected = 0,
+        .selected_color = 0xffff00,
+    };
+
+    ui_clear(&u, UI_BG);
+    u.nled = 0;
+    struct ui_pad_hit hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, 0);
+    expect(hit.mode == -1 && hit.slot == -1 && hit.tap == -1, "no input draws only");
+    expect(u.nled == 0, "no input leaves leds alone");
+
+    struct input in = blank();
+    in.pad_hit[12] = 100;
+    in.pad_down[12] = 1;
+    ui_clear(&u, UI_BG);
+    hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, &in);
+    expect(hit.mode == -1 && hit.slot == -1 && hit.tap == -1, "cluster hit waits for a hold");
+    expect(px(&u, 20, 0) == 0x111111, "idle cluster pad");
+    expect(px(&u, 60, 40) == 0x222222, "resting modifier");
+    expect(px(&u, 0, 60) == 0xaaaaaa, "tap pad");
+    expect(u.nled == 12, "owned pads are sent");
+
+    in = blank();
+    in.pad_down[15] = 1;
+    in.pad_hit[12] = 80;
+    hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, &in);
+    expect(hit.mode == 1 && hit.slot == 0 && hit.tap == -1, "held mode returns the cluster slot");
+
+    in.pad_down[7] = 1;
+    in.pad_down[15] = 1;
+    in.pad_hit[12] = 80;
+    in.pad_down[12] = 0;
+    hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, &in);
+    expect(hit.mode == 0 && hit.slot == 0 && hit.tap == -1, "first held mode wins");
+    in.pad_hit[12] = -1;
+    ui_clear(&u, UI_BG);
+    hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, &in);
+    expect(hit.mode == 0 && hit.slot == -1, "hold alone does not pick a slot");
+    expect(px(&u, 0, 0) == 0xffff00, "selected cluster slot");
+    expect(px(&u, 20, 0) == 0x00aa00, "armed mode colors the cluster");
+
+    in = blank();
+    in.pad_down[7] = 1;
+    in.pad_hit[0] = 70;
+    in.pad_down[0] = 1;
+    hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, &in);
+    expect(hit.mode == 0 && hit.slot == -1 && hit.tap == -1, "tap waits until the hold is released");
+
+    in = blank();
+    in.pad_hit[0] = 70;
+    in.pad_down[0] = 1;
+    hit = ui_pad_modes(&u, 0, 0, 80, 80, group, 9, modes, 2, taps, 1, st, &in);
+    expect(hit.mode == -1 && hit.slot == -1 && hit.tap == 0, "tap fires on its own");
+}
+
+static void test_sudoku(void) {
+    static uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    struct sudoku_state s = {0};
+    expect(sudoku_puzzles_ok(), "built-in puzzles");
+    struct input in = blank();
+    expect(sudoku_frame(&u, &in, &s) == 0, "sudoku runs");
+    expect(s.ready && s.grid[0] == '5' && s.given[0] && s.grid[1] == '0' && !s.given[1], "first clue and hole");
+    expect(px(&u, 4, 26) == UI_HL, "selected cell is outlined");
+
+    in = blank();
+    in.pad_down[7] = 1;
+    in.pad_hit[12] = 60;
+    s.cell = 0;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[0] == '5' && s.undo_n == 0, "a given stays put");
+
+    in = blank();
+    in.pad_down[7] = 1;
+    in.pad_hit[12] = 60;
+    s.cell = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '1' && s.undo_n == 1, "digit lands in the hole");
+
+    in = blank();
+    in.pad_hit[0] = 60;
+    in.pad_down[0] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '0' && s.undo_n == 0, "undo restores the hole");
+
+    in = blank();
+    in.pad_down[7] = 1;
+    in.pad_hit[12] = 60;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '1', "digit written again");
+
+    in = blank();
+    in.pad_hit[3] = 60;
+    in.pad_down[3] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '0', "clear empties the cell");
+
+    in = blank();
+    in.pad_hit[0] = 60;
+    in.pad_down[0] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '1', "undo restores the digit");
+
+    in = blank();
+    in.pad_hit[1] = 60;
+    in.pad_down[1] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.puzzle == 0 && s.grid[1] == '0' && s.given[0], "restart restores the clues");
+
+    in = blank();
+    in.pad_hit[0] = 60;
+    in.pad_down[0] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '1', "undo restores the board from before restart");
+
+    in = blank();
+    in.pad_hit[2] = 60;
+    in.pad_down[2] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.puzzle == 1 && s.grid[0] == '6', "new puzzle");
+
+    in = blank();
+    in.pad_hit[0] = 60;
+    in.pad_down[0] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.puzzle == 0 && s.grid[1] == '1', "undo restores the board from before new");
+
+    in = blank();
+    in.shift = 1;
+    in.encoder_press = 1;
+    expect(sudoku_frame(&u, &in, &s) == 1, "shift menu quits");
+}
+
 static void test_anim(void) {
     static uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};
@@ -407,6 +598,9 @@ int main(void) {
     test_list();
     test_menu();
     test_pads();
+    test_grid();
+    test_pad_modes();
+    test_sudoku();
     test_anim();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
