@@ -210,6 +210,25 @@ static void test_list(void) {
     list_frame(&u, &held, &held_state);
     expect(held_state.ls.cursor == 0, "open menu keeps the list");
     expect(px(&u, 16, 40) == UI_HL, "list row stays put");
+
+    const char *long_rows[] = {"a", "b", "c", "d", "e", "f", "g", "h"};
+    struct ui_list_style st = {
+        .text = UI_TEXT, .highlight = UI_HL, .row_h = 20, .highlight_px = 2,
+        .current_fill_set = 1, .current_fill = 0x2a2418,
+    };
+    struct ui_list_state ls = {0};
+    struct input wheel = blank();
+    ui_clear(&u, UI_BG);
+    ui_list(&u, 10, 10, 100, 60, long_rows, 8, st, &wheel, &ls);
+    expect(px(&u, 107, 11) == UI_HL, "scrollbar thumb starts at the top");
+    expect(px(&u, 107, 68) != UI_HL && px(&u, 107, 68) != UI_BG, "scrollbar track shows the rest");
+    expect(px(&u, 105, 12) == UI_BG, "scrollbar leaves a gap beside the rows");
+    wheel.encoder = 7;
+    ui_clear(&u, UI_BG);
+    ui_list(&u, 10, 10, 100, 60, long_rows, 8, st, &wheel, &ls);
+    expect(ls.cursor == 7, "scrollbar follows the last row");
+    expect(px(&u, 107, 68) == UI_HL, "scrollbar thumb ends at the bottom");
+    expect(px(&u, 107, 11) != UI_HL, "scrollbar top is track at the end");
 }
 
 static void test_menu(void) {

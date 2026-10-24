@@ -118,6 +118,40 @@ static void fill_row(struct ui *u, int x, int y, int w, int h, uint32_t c) {
     ui_box(u, x, y, w, h, p);
 }
 
+static uint32_t shade(uint32_t c, int num, int den) {
+    if (den <= 0) return c & 0x00ffffff;
+    int ch[3] = {(int)((c >> 16) & 255), (int)((c >> 8) & 255), (int)(c & 255)};
+    for (int i = 0; i < 3; i++) {
+        ch[i] = ch[i] * num / den;
+        if (ch[i] < 0) ch[i] = 0;
+        if (ch[i] > 255) ch[i] = 255;
+    }
+    return ((uint32_t)ch[0] << 16) | ((uint32_t)ch[1] << 8) | (uint32_t)ch[2];
+}
+
+// Width taken from the right of the rect when the rows do not fit. 0 when they do.
+static int scroll_reserve(int w, int h, int visible, int n) {
+    if (n <= visible || visible < 1 || w < 16 || h < 4) return 0;
+    return 6;
+}
+
+static void scroll_bar(struct ui *u, int x, int y, int w, int h, int first, int visible, int n, uint32_t color) {
+    if (!scroll_reserve(w, h, visible, n)) return;
+    int bw = 4;
+    int bx = x + w - bw;
+    uint32_t thumb = color ? color : (uint32_t)UI_HL;
+    uint32_t track = shade(thumb, 1, 3);
+    fill_row(u, bx, y, bw, h, track);
+    int thumb_h = h * visible / n;
+    if (thumb_h < 8) thumb_h = h < 8 ? h : 8;
+    if (thumb_h > h) thumb_h = h;
+    int max_first = n - visible;
+    int travel = h - thumb_h;
+    int ty = y;
+    if (max_first > 0 && travel > 0) ty = y + travel * first / max_first;
+    fill_row(u, bx, ty, bw, thumb_h, thumb);
+}
+
 int ui_list(struct ui *u, int x, int y, int w, int h, const char **rows, int n, struct ui_list_style st,
             const struct input *in, struct ui_list_state *ls) {
     if (!ls) return -1;
@@ -132,15 +166,18 @@ int ui_list(struct ui *u, int x, int y, int w, int h, const char **rows, int n, 
     if (visible < 1) visible = 1;
     int first = 0;
     if (ls->cursor >= visible) first = ls->cursor - visible + 1;
+    int reserve = scroll_reserve(w, h, visible, n);
+    int row_w = w - reserve;
     for (int i = first; i < n && i < first + visible; i++) {
         int yy = y + (i - first) * row_h;
         if (i == ls->cursor) {
-            if (st.current_fill_set) fill_row(u, x, yy, w, row_h, st.current_fill);
-            ui_highlight(u, x, yy, w, row_h, st.highlight, st.highlight_px > 0 ? st.highlight_px : 1);
+            if (st.current_fill_set) fill_row(u, x, yy, row_w, row_h, st.current_fill);
+            ui_highlight(u, x, yy, row_w, row_h, st.highlight, st.highlight_px > 0 ? st.highlight_px : 1);
         }
         int ty = yy + (row_h - FONT_S_H) / 2;
         ui_text(u, x + 8, ty, rows && rows[i] ? rows[i] : "", st.text, 1);
     }
+    scroll_bar(u, x, y, w, h, first, visible, n, st.highlight);
     return hit;
 }
 
@@ -301,11 +338,13 @@ int ui_menu(struct ui *u, int x, int y, int w, int h, struct ui_menu *m, struct 
         int visible = h_in / row_h;
         if (visible < 1) visible = 1;
         int first = m->cursor >= visible ? m->cursor - visible + 1 : 0;
+        int reserve = scroll_reserve(w_in, h_in, visible, n);
+        int row_w = w_in - reserve;
         for (int i = first; i < n && i < first + visible; i++) {
             int yy = y_rows + (i - first) * row_h;
             if (i == m->cursor) {
-                if (st.current_fill_set) fill_row(u, x_in, yy, w_in, row_h, st.current_fill);
-                ui_highlight(u, x_in, yy, w_in, row_h, st.highlight, st.highlight_px > 0 ? st.highlight_px : 1);
+                if (st.current_fill_set) fill_row(u, x_in, yy, row_w, row_h, st.current_fill);
+                ui_highlight(u, x_in, yy, row_w, row_h, st.highlight, st.highlight_px > 0 ? st.highlight_px : 1);
             }
             int pad = bound_pad(&m->items[i], i);
             char line[48];
@@ -314,6 +353,7 @@ int ui_menu(struct ui *u, int x, int y, int w, int h, struct ui_menu *m, struct 
             else snprintf(line, sizeof line, "%s", label);
             ui_text(u, x_in + 8, yy + (row_h - FONT_S_H) / 2, line, st.text, 1);
         }
+        scroll_bar(u, x_in, y_rows, w_in, h_in, first, visible, n, st.highlight);
     }
 
     unsigned lit = 0;

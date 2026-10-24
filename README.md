@@ -34,7 +34,7 @@ Each widget stays inside the rectangle you pass.
 
 - `ui_soft_keys` splits the rect into three keys for B1, B2, and B3. The active key uses the highlight fill. These buttons have no LEDs.
 - `ui_knobs` draws three value boxes for K1, K2, and K3. You own the three `float` values (0..1) and the text callback. The encoder moves focus. Plus and Minus step by `step`. A knob does not jump: it follows only after it crosses the current value. `struct ui_knob_state` `.last` starts at -1.
-- `ui_list` scrolls rows. `row_h` is the row size. The encoder moves, encoder press returns that row, and the current row gets an outline plus an optional fill.
+- `ui_list` scrolls rows. `row_h` is the row size. The encoder moves, encoder press returns that row, and the current row gets an outline plus an optional fill. When the rows do not fit, a bar on the right shows where that window sits in the list. The thumb uses the highlight color.
 - `ui_pads` fits a 4×4 grid to the rect, pad 1 at the bottom left. A hit stores a color (blue when soft, red when hard). Pressure brightens the cell while it is held.
 - `ui_menu` shows rows only while a button combination is held. Let go and the rows disappear. The wheel moves. Encoder press chooses the highlighted row. Each row can also name a pad and a key.
 

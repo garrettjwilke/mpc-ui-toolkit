@@ -42,6 +42,7 @@ struct ui_list_state {
 };
 
 // Returns the activated row, or -1. rows may be empty.
+// When the rows do not fit, a bar on the right shows the window's place in the list.
 int ui_list(struct ui *u, int x, int y, int w, int h, const char **rows, int n, struct ui_list_style st,
             const struct input *in, struct ui_list_state *ls);
 
