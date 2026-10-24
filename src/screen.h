@@ -12,5 +12,6 @@ struct screen {
 };
 
 int screen_open(struct screen *s); // 0 on success. On failure s->px stays NULL.
-void screen_flush(struct screen *s, int x0, int y0, int x1, int y1);
+// One DIRTYFB for every rect. rects are x0,y0,x1,y1 with x1,y1 exclusive.
+void screen_flush(struct screen *s, const int rects[][4], int n);
 void screen_close(struct screen *s);

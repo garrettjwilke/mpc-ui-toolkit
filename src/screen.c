@@ -86,17 +86,26 @@ fail:
     return -1;
 }
 
-void screen_flush(struct screen *s, int x0, int y0, int x1, int y1) {
-    if (!s->px || x1 <= x0 || y1 <= y0) return;
-    struct drm_clip_rect clip = {(unsigned short)x0, (unsigned short)y0, (unsigned short)x1, (unsigned short)y1};
-    struct drm_mode_fb_dirty_cmd dirty = {.fb_id = s->fb_id, .num_clips = 1, .clips_ptr = (uintptr_t)&clip};
+void screen_flush(struct screen *s, const int rects[][4], int n) {
+    if (!s->px || n <= 0 || !rects) return;
+    struct drm_clip_rect clips[256];
+    int used = 0;
+    if (n > 256) n = 256;
+    for (int i = 0; i < n; i++) {
+        int x0 = rects[i][0], y0 = rects[i][1], x1 = rects[i][2], y1 = rects[i][3];
+        if (x1 <= x0 || y1 <= y0) continue;
+        clips[used++] = (struct drm_clip_rect){(unsigned short)x0, (unsigned short)y0, (unsigned short)x1, (unsigned short)y1};
+    }
+    if (!used) return;
+    struct drm_mode_fb_dirty_cmd dirty = {.fb_id = s->fb_id, .num_clips = (uint32_t)used, .clips_ptr = (uintptr_t)clips};
     drm_call(s->fd, DRM_IOCTL_MODE_DIRTYFB, &dirty, "dirtyfb");
 }
 
 void screen_close(struct screen *s) {
     if (s->ok && s->px) {
         memset(s->px, 0, s->bytes);
-        screen_flush(s, 0, 0, 320, 240);
+        int rect[1][4] = {{0, 0, 320, 240}};
+        screen_flush(s, rect, 1);
     }
     if (s->px) munmap(s->px, s->bytes);
     s->px = NULL;

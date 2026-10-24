@@ -60,7 +60,9 @@ While the menu is open its pads light. Releasing the combination turns those pad
 
 ## Examples
 
-Each file is one screen and one idea. `make` builds eight static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+Each file is one screen and one idea. `make` builds nine static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+
+`anim` slides a block along a track and asks for another frame in 16 ms. The panel is an SPI ST7796S. One update carries every changed row. A full 320×240 frame is about 50 ms on the wire, so a full-screen wipe stays near 20 frames per second. The block is small, and only the rows it leaves and enters are sent.
 
 Every example uses the same menu: hold Shift and Quit appears on pad 1. The wheel moves the row, encoder press or that pad chooses it, and letting go of Shift hides the menu. Choosing Quit leaves the program. The process drops the screen and turns the pad lights off so the boot menu can draw again. Edit `examples/menu.h`, or give `ui_menu` a different `hold` mask and item list.
 

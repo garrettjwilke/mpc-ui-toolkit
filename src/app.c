@@ -6,15 +6,31 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+
+static int64_t mono_ms(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+// A wake waits only for the time the draw did not already use. Idle stays at 50 ms.
+static int poll_ms(int wake, int64_t started) {
+    if (wake <= 0) return 50;
+    int64_t spent = mono_ms() - started;
+    if (spent < 0) spent = 0;
+    if (spent >= wake) return 0;
+    return (int)(wake - spent);
+}
 
 static void present(struct screen *scr, const uint32_t *front, int rects[][4], int n) {
     for (int i = 0; i < n; i++) {
         int x0 = rects[i][0], y0 = rects[i][1], x1 = rects[i][2], y1 = rects[i][3];
         for (int y = y0; y < y1; y++)
             memcpy(scr->px + y * scr->stride + x0, front + y * UI_W + x0, (size_t)(x1 - x0) * 4);
-        screen_flush(scr, x0, y0, x1, y1);
     }
+    screen_flush(scr, rects, n);
 }
 
 static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struct surface *midi, ui_frame frame,
@@ -67,11 +83,12 @@ int app_run(ui_frame frame, void *state) {
     struct input in;
     input_begin(&in, &dev);
     int wake = 0;
+    int64_t started = mono_ms();
     int quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
 
     while (!quit) {
         struct pollfd pfd = {.fd = midi.fd, .events = POLLIN};
-        int pr = poll(&pfd, 1, wake > 0 ? wake : 50);
+        int pr = poll(&pfd, 1, poll_ms(wake, started));
         if (pr < 0) {
             if (errno == EINTR) continue;
             break;
@@ -79,12 +96,14 @@ int app_run(ui_frame frame, void *state) {
         if (pr == 0) {
             if (wake <= 0) continue;
             input_begin(&in, &dev);
+            started = mono_ms();
             quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
             continue;
         }
         int got = read_frame(&midi, &parser, &dev, &in);
         if (got < 0) break;
         if (!got) continue;
+        started = mono_ms();
         quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
     }
 

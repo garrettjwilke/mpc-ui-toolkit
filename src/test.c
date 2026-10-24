@@ -19,6 +19,8 @@ struct list_state { struct ui_list_state ls; const char *chosen; };
 int list_frame(struct ui *u, const struct input *in, void *state);
 struct pads_state { uint32_t color[16]; int ready; };
 int pads_frame(struct ui *u, const struct input *in, void *state);
+struct anim_state { int x; int dir; };
+int anim_frame(struct ui *u, const struct input *in, void *state);
 
 static int failed;
 
@@ -360,6 +362,39 @@ static void test_pads(void) {
     expect(u.nled >= 1 && u.led[0].index == 0 && u.led[0].r > 60, "pad led queued");
 }
 
+static void test_anim(void) {
+    static uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    struct anim_state s = {.x = 24, .dir = 4};
+    struct input in = blank();
+    int x0 = s.x;
+    expect(anim_frame(&u, &in, &s) == 0, "anim runs");
+    expect(s.x == x0 + 4, "block stepped right");
+    expect(px(&u, x0 + 2, 110) == UI_HL, "block is on the track");
+    expect(u.wake_ms == 16, "anim asks for the next frame");
+    int drawn = x0;
+    for (int i = 0; i < 6; i++) {
+        drawn = s.x;
+        anim_frame(&u, &in, &s);
+    }
+    expect(px(&u, x0 + 2, 110) != UI_HL, "old block is gone");
+    expect(px(&u, drawn + 2, 110) == UI_HL, "block drew at its new place");
+
+    s.x = 276;
+    s.dir = 4;
+    anim_frame(&u, &in, &s);
+    expect(s.dir < 0 && s.x < 276, "block bounces at the end of the track");
+
+    in.encoder_press = 1;
+    expect(anim_frame(&u, &in, &s) == 0, "encoder alone does not quit");
+    in.shift = 1;
+    expect(anim_frame(&u, &in, &s) == 1, "shift menu quits");
+    struct input pad = blank();
+    pad.shift = 1;
+    pad.pad_hit[0] = 80;
+    expect(anim_frame(&u, &pad, &s) == 1, "pad 1 quits");
+}
+
 int main(void) {
     test_parser();
     test_changes();
@@ -372,6 +407,7 @@ int main(void) {
     test_list();
     test_menu();
     test_pads();
+    test_anim();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
         return 1;

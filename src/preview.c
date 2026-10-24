@@ -19,6 +19,8 @@ struct list_state { struct ui_list_state ls; const char *chosen; };
 int list_frame(struct ui *u, const struct input *in, void *state);
 struct pads_state { uint32_t color[16]; int ready; };
 int pads_frame(struct ui *u, const struct input *in, void *state);
+struct anim_state { int x; int dir; };
+int anim_frame(struct ui *u, const struct input *in, void *state);
 
 static int write_ppm(const char *path, const uint32_t *px) {
     FILE *f = fopen(path, "wb");
@@ -56,6 +58,7 @@ int main(void) {
     struct knobs_state knobs = {.norm = {0.25f, 0.50f, 0.75f}, .ks = {.last = {-1, -1, -1}}};
     struct list_state list = {.chosen = "Alpha"};
     struct pads_state pads = {0};
+    struct anim_state anim = {.x = 17, .dir = 4};
     struct input hit;
     input_begin(&hit, 0);
     hit.pad_hit[0] = 100;
@@ -70,6 +73,7 @@ int main(void) {
     rc |= shot("soft-keys", soft_keys_frame, &soft);
     rc |= shot("knobs", knobs_frame, &knobs);
     rc |= shot("list", list_frame, &list);
+    rc |= shot("anim", anim_frame, &anim);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};
