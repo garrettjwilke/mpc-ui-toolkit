@@ -64,7 +64,7 @@ While the menu is open its pads light. Releasing the combination turns those pad
 
 Each file is one screen and one idea. `make` builds ten static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`, `sudoku`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
 
-`sudoku` is a game on `ui_grid` and `ui_pad_modes`. The top-left 3×3 of pads is the cluster. Hold pad 16 and tap it to pick a block, pad 12 to pick a cell inside that block, and pad 8 to enter 1–9. Pads 1–4 are undo, restart, new, and clear. Hold Shift and Quit, as in the other examples.
+`sudoku` is a game on `ui_grid` and `ui_pad_modes`. The top-left 3×3 of pads is the cluster. Hold pad 16 and tap it to pick a block, pad 12 to pick a cell inside that block, and pad 8 to enter 1–9. Hold pad 1 and tap the cluster to mark a possible number. Those marks sit under the pad legend. Pad 3 clears the marks on the selected cell, and pad 4 clears the digit. The middle top button undoes. Hold the restart pad, or hold the top-right New button, then press the middle button to confirm. A matching pair of entered digits turns red. A clue does not. Hold Shift and Quit, as in the other examples.
 
 `anim` slides a block along a track and asks for another frame in 16 ms. The panel is an SPI ST7796S. One update carries every changed row. A full 320×240 frame is about 50 ms on the wire, so a full-screen wipe stays near 20 frames per second. The block is small, and only the rows it leaves and enters are sent.
 

@@ -6,6 +6,7 @@ enum { SUDOKU_UNDO = 32 };
 struct sudoku_snap {
     char grid[81];
     char given[81];
+    unsigned short notes[81]; // bit 0 is digit 1
     int puzzle, block, cell;
 };
 
@@ -13,6 +14,7 @@ struct sudoku_state {
     int puzzle;
     char grid[81];
     char given[81];
+    unsigned short notes[81];
     int block, cell;
     int ready;
     struct sudoku_snap undo[SUDOKU_UNDO];

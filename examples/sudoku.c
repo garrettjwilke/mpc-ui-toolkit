@@ -1,6 +1,6 @@
 // Sudoku. Hold a side pad and tap the top-left 3x3.
-// Pad 16 picks a block, pad 12 a cell inside it, pad 8 a digit 1-9.
-// Pads 1-4 are undo, restart, new, and clear.
+// Pad 16 picks a block, pad 12 a cell, pad 8 a digit, pad 1 a note.
+// B2 undoes. Hold B3 or the restart pad, then press B2, to start over.
 #include "sudoku.h"
 #include "input.h"
 #include "widgets.h"
@@ -19,15 +19,24 @@ enum {
     FILL_EMPTY = 0x18181e,
     FILL_GIVEN = 0x243044,
     FILL_ENTRY = 0x1c3324,
-    FILL_BAD = 0x6a2832
+    FILL_BAD = 0x6a2832,
+    FILL_NOTE = 0x1e4a32,
+    BAR_X = 4,
+    BAR_Y = 1,
+    BAR_W = 312,
+    BAR_H = 24,
+    NOTE_X = 198,
+    NOTE_Y = 150,
+    NOTE_W = 118,
+    NOTE_H = 84
 };
 
 // Top-left cluster matches the screen. Indexes are pads 13,14,15 / 9,10,11 / 5,6,7.
 static const int cluster[9] = {12, 13, 14, 8, 9, 10, 4, 5, 6};
 
-// Number is first so it wins when more than one modifier is held.
-enum { MODE_NUM, MODE_CELL, MODE_BLOCK };
-enum { TAP_UNDO, TAP_RESTART, TAP_NEW, TAP_CLEAR };
+// Restart is first so a confirm hold does not also edit the board.
+enum { MODE_RESTART, MODE_NOTE, MODE_NUM, MODE_CELL, MODE_BLOCK };
+enum { TAP_CLEAR_NOTES, TAP_CLEAR };
 
 static const struct {
     const char *givens;
@@ -97,13 +106,25 @@ static int at(int block, int cell) {
     return (br * 3 + cr) * 9 + bc * 3 + cc;
 }
 
+static int same_unit(int a, int b) {
+    int ar = a / 9, ac = a % 9, br = b / 9, bc = b % 9;
+    return ar == br || ac == bc || (ar / 3 == br / 3 && ac / 3 == bc / 3);
+}
+
 static int clash(const char *g, int i) {
     if (g[i] < '1' || g[i] > '9') return 0;
-    int row = i / 9, col = i % 9;
+    for (int j = 0; j < 81; j++)
+        if (j != i && g[j] == g[i] && same_unit(i, j)) return 1;
+    return 0;
+}
+
+// Red marks two numbers the player typed. A clue is never marked, and a guess
+// that only repeats a clue stays unmarked so the puzzle does not point at the answer.
+static int player_clash(const struct sudoku_state *s, int i) {
+    if (s->given[i] || s->grid[i] < '1' || s->grid[i] > '9') return 0;
     for (int j = 0; j < 81; j++) {
-        if (j == i || g[j] != g[i]) continue;
-        int jr = j / 9, jc = j % 9;
-        if (jr == row || jc == col || (jr / 3 == row / 3 && jc / 3 == col / 3)) return 1;
+        if (j == i || s->given[j] || s->grid[j] != s->grid[i]) continue;
+        if (same_unit(i, j)) return 1;
     }
     return 0;
 }
@@ -152,6 +173,7 @@ static void load_puzzle(struct sudoku_state *s, int n) {
         int keep = givens[i] >= '1' && givens[i] <= '9' && givens[i] == sol[i];
         s->given[i] = (char)(keep ? 1 : 0);
         s->grid[i] = keep ? givens[i] : '0';
+        s->notes[i] = 0;
     }
 }
 
@@ -163,6 +185,7 @@ static void push_undo(struct sudoku_state *s) {
     struct sudoku_snap *snap = &s->undo[s->undo_n++];
     memcpy(snap->grid, s->grid, 81);
     memcpy(snap->given, s->given, 81);
+    memcpy(snap->notes, s->notes, sizeof snap->notes);
     snap->puzzle = s->puzzle;
     snap->block = s->block;
     snap->cell = s->cell;
@@ -173,6 +196,7 @@ static void pop_undo(struct sudoku_state *s) {
     struct sudoku_snap *snap = &s->undo[--s->undo_n];
     memcpy(s->grid, snap->grid, 81);
     memcpy(s->given, snap->given, 81);
+    memcpy(s->notes, snap->notes, sizeof s->notes);
     s->puzzle = snap->puzzle;
     s->block = snap->block;
     s->cell = snap->cell;
@@ -182,16 +206,32 @@ static int pad_down_now(const struct input *in, int pad) {
     return in && pad >= 0 && pad < 16 && (in->pad_down[pad] || in->pad_hit[pad] >= 0);
 }
 
+static int button_down(const struct input *in, int button) {
+    return in && input_down(in, button);
+}
+
+static int button_held(const struct input *in, int button) {
+    if (!in || button < 0 || button >= IN_N) return 0;
+    return ((in->held >> button) & 1) || input_down(in, button);
+}
+
 static void apply_hit(struct sudoku_state *s, struct ui_pad_hit hit) {
     if (s->block < 0 || s->block > 8) s->block = 0;
     if (s->cell < 0 || s->cell > 8) s->cell = 0;
+    int idx = at(s->block, s->cell);
     if (hit.slot >= 0 && hit.slot < 9) {
-        if (hit.mode == MODE_NUM) {
-            int idx = at(s->block, s->cell);
+        if (hit.mode == MODE_NOTE) {
+            if (!s->given[idx] && s->grid[idx] == '0') {
+                unsigned short bit = (unsigned short)(1u << hit.slot);
+                push_undo(s);
+                s->notes[idx] = (unsigned short)(s->notes[idx] ^ bit);
+            }
+        } else if (hit.mode == MODE_NUM) {
             char digit = (char)('1' + hit.slot);
             if (!s->given[idx] && s->grid[idx] != digit) {
                 push_undo(s);
                 s->grid[idx] = digit;
+                s->notes[idx] = 0;
             }
         } else if (hit.mode == MODE_CELL) {
             s->cell = hit.slot;
@@ -199,16 +239,12 @@ static void apply_hit(struct sudoku_state *s, struct ui_pad_hit hit) {
             s->block = hit.slot;
         }
     }
-    if (hit.tap == TAP_UNDO) {
-        pop_undo(s);
-    } else if (hit.tap == TAP_RESTART) {
-        push_undo(s);
-        load_puzzle(s, s->puzzle);
-    } else if (hit.tap == TAP_NEW) {
-        push_undo(s);
-        load_puzzle(s, s->puzzle + 1);
+    if (hit.tap == TAP_CLEAR_NOTES) {
+        if (s->notes[idx]) {
+            push_undo(s);
+            s->notes[idx] = 0;
+        }
     } else if (hit.tap == TAP_CLEAR) {
-        int idx = at(s->block, s->cell);
         if (!s->given[idx] && s->grid[idx] != '0') {
             push_undo(s);
             s->grid[idx] = '0';
@@ -216,8 +252,24 @@ static void apply_hit(struct sudoku_state *s, struct ui_pad_hit hit) {
     }
 }
 
+// Hold restart or New, then press the middle button. A tap alone does nothing.
+static void apply_bar(struct sudoku_state *s, const struct input *in) {
+    int yes = button_down(in, IN_B2);
+    if (pad_down_now(in, 1) && yes) {
+        push_undo(s);
+        load_puzzle(s, s->puzzle);
+    } else if (button_held(in, IN_B3) && yes) {
+        push_undo(s);
+        load_puzzle(s, s->puzzle + 1);
+    } else if (yes) {
+        pop_undo(s);
+    }
+}
+
 static const char *status_of(const struct sudoku_state *s, const struct input *in) {
+    if (pad_down_now(in, 1) || button_held(in, IN_B3)) return "Press Yes";
     if (solved(s->grid)) return "Solved";
+    if (pad_down_now(in, 0)) return "Note";
     if (pad_down_now(in, 7)) return "Number";
     if (pad_down_now(in, 11)) return "Cell";
     if (pad_down_now(in, 15)) return "Block";
@@ -233,7 +285,7 @@ static void draw_board(struct ui *u, const struct sudoku_state *s) {
         text[i][0] = on ? s->grid[i] : 0;
         text[i][1] = 0;
         labels[i] = on ? text[i] : 0;
-        if (clash(s->grid, i)) fills[i] = FILL_BAD;
+        if (player_clash(s, i)) fills[i] = FILL_BAD;
         else if (s->given[i]) fills[i] = FILL_GIVEN;
         else if (on) fills[i] = FILL_ENTRY;
         else fills[i] = FILL_EMPTY;
@@ -254,6 +306,40 @@ static void draw_board(struct ui *u, const struct sudoku_state *s) {
     ui_grid(u, BOARD_X, BOARD_Y, BOARD_W, BOARD_H, 9, 9, labels, fills, cursor, cursor, st);
 }
 
+static void draw_notes(struct ui *u, const struct sudoku_state *s) {
+    const char *labels[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    uint32_t fills[9];
+    unsigned short bits = s->notes[at(s->block, s->cell)];
+    for (int i = 0; i < 9; i++) fills[i] = (bits & (1u << i)) ? FILL_NOTE : FILL_EMPTY;
+    struct ui_grid_style st = {
+        .fill = FILL_EMPTY,
+        .text = UI_TEXT,
+        .line = 0x3a4050,
+        .block_line = 0x3a4050,
+        .cursor = UI_HL,
+        .band = UI_HL,
+        .gap = 2,
+        .block = 0,
+        .cursor_px = 1,
+    };
+    ui_grid(u, NOTE_X, NOTE_Y, NOTE_W, NOTE_H, 3, 3, labels, fills, -1, -1, st);
+}
+
+static void draw_bar(struct ui *u, const struct input *in) {
+    int armed = pad_down_now(in, 1) || button_held(in, IN_B3);
+    const char *labels[3] = {pad_down_now(in, 1) ? "Rst?" : button_held(in, IN_B3) ? "New?" : "Sudoku",
+                             armed ? "Yes" : "Undo", "New"};
+    struct ui_soft_style st = {
+        .fill = 0x2a3038,
+        .text = UI_TEXT,
+        .active_text = UI_BG,
+        .highlight = UI_HL,
+        .gap = 4,
+        .feedback = UI_SOFT_HOLD,
+    };
+    ui_soft_keys(u, BAR_X, BAR_Y, BAR_W, BAR_H, labels, 0, st, in, 0);
+}
+
 static struct ui_pad_hit draw_pads(struct ui *u, const struct input *in, const struct sudoku_state *s) {
     const char *digits[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
     char cell_txt[9][2];
@@ -265,20 +351,25 @@ static struct ui_pad_hit draw_pads(struct ui *u, const struct input *in, const s
         cell_txt[i][1] = 0;
         cell_names[i] = on ? cell_txt[i] : 0;
     }
-    struct ui_pad_mode modes[3] = {
+    struct ui_pad_mode modes[5] = {
+        {.pad = 1, .color = 0x3a3030, .held = 0xc45c4a, .label = "Rst"},
+        {.pad = 0, .color = 0x14382e, .held = 0x2f9e62, .label = "Note", .names = digits},
         {.pad = 7, .color = 0x163d2c, .held = 0x2f9e62, .label = "Num", .names = digits},
         {.pad = 11, .color = 0x4a3410, .held = 0xe09a2b, .label = "Cel", .names = cell_names},
         {.pad = 15, .color = 0x152848, .held = 0x4e86e0, .label = "Blk"},
     };
-    struct ui_pad_tap taps[4] = {
-        {.pad = 0, .color = 0x2a3038, .label = "Undo"},
-        {.pad = 1, .color = 0x2a3038, .label = "Rst"},
-        {.pad = 2, .color = 0x2a3038, .label = "New"},
+    struct ui_pad_tap taps[2] = {
+        {.pad = 2, .color = 0x2a3038, .label = "NClr"},
         {.pad = 3, .color = 0x2a3038, .label = "Clr"},
     };
     uint32_t selected_color = 0xffffff;
     int selected = -1;
-    if (pad_down_now(in, 7)) {
+    if (pad_down_now(in, 0)) {
+        selected_color = 0x2f9e62;
+        unsigned short bits = s->notes[at(s->block, s->cell)];
+        for (int i = 0; i < 9; i++)
+            if (bits & (1u << i)) selected = i;
+    } else if (pad_down_now(in, 7)) {
         selected_color = 0x2f9e62;
         int idx = at(s->block, s->cell);
         if (s->grid[idx] >= '1' && s->grid[idx] <= '9') selected = s->grid[idx] - '1';
@@ -299,7 +390,7 @@ static struct ui_pad_hit draw_pads(struct ui *u, const struct input *in, const s
         .selected = selected,
         .selected_color = selected_color,
     };
-    return ui_pad_modes(u, PAD_X, PAD_Y, PAD_W, PAD_H, cluster, 9, modes, 3, taps, 4, st, in);
+    return ui_pad_modes(u, PAD_X, PAD_Y, PAD_W, PAD_H, cluster, 9, modes, 5, taps, 2, st, in);
 }
 
 int sudoku_frame(struct ui *u, const struct input *in, void *state) {
@@ -321,10 +412,14 @@ int sudoku_frame(struct ui *u, const struct input *in, void *state) {
     // The hit is taken from the board as it was. The draw below shows the result.
     struct ui_pad_hit hit = {-1, -1, -1};
     if (!open) hit = draw_pads(u, in, s);
-    if (!open) apply_hit(s, hit);
-    ui_text(u, 4, 8, "Sudoku", UI_TEXT, 1);
+    if (!open) {
+        apply_hit(s, hit);
+        apply_bar(s, in);
+    }
+    draw_bar(u, open ? 0 : in);
     draw_board(u, s);
     ui_text(u, 4, 220, status_of(s, in), UI_TEXT, 1);
+    draw_notes(u, s);
     draw_pads(u, open ? 0 : in, s);
     if (example_menu_draw(u, in)) return 1;
     if (was && !example_menu.shown) draw_pads(u, in, s);

@@ -500,8 +500,7 @@ static void test_sudoku(void) {
     expect(s.grid[1] == '1' && s.undo_n == 1, "digit lands in the hole");
 
     in = blank();
-    in.pad_hit[0] = 60;
-    in.pad_down[0] = 1;
+    in.down = 1u << IN_B2;
     sudoku_frame(&u, &in, &s);
     expect(s.grid[1] == '0' && s.undo_n == 0, "undo restores the hole");
 
@@ -518,34 +517,68 @@ static void test_sudoku(void) {
     expect(s.grid[1] == '0', "clear empties the cell");
 
     in = blank();
-    in.pad_hit[0] = 60;
-    in.pad_down[0] = 1;
+    in.down = 1u << IN_B2;
     sudoku_frame(&u, &in, &s);
     expect(s.grid[1] == '1', "undo restores the digit");
 
     in = blank();
-    in.pad_hit[1] = 60;
     in.pad_down[1] = 1;
+    sudoku_frame(&u, &in, &s);
+    expect(s.grid[1] == '1', "restart waits for confirm");
+    in.down = 1u << IN_B2;
     sudoku_frame(&u, &in, &s);
     expect(s.puzzle == 0 && s.grid[1] == '0' && s.given[0], "restart restores the clues");
 
     in = blank();
-    in.pad_hit[0] = 60;
-    in.pad_down[0] = 1;
+    in.down = 1u << IN_B2;
     sudoku_frame(&u, &in, &s);
     expect(s.grid[1] == '1', "undo restores the board from before restart");
 
     in = blank();
-    in.pad_hit[2] = 60;
-    in.pad_down[2] = 1;
+    in.held = 1u << IN_B3;
+    in.down = 1u << IN_B3;
+    sudoku_frame(&u, &in, &s);
+    expect(s.puzzle == 0 && s.grid[1] == '1', "new waits for confirm");
+    in.down = 1u << IN_B2;
     sudoku_frame(&u, &in, &s);
     expect(s.puzzle == 1 && s.grid[0] == '6', "new puzzle");
 
     in = blank();
-    in.pad_hit[0] = 60;
-    in.pad_down[0] = 1;
+    in.down = 1u << IN_B2;
     sudoku_frame(&u, &in, &s);
     expect(s.puzzle == 0 && s.grid[1] == '1', "undo restores the board from before new");
+
+    struct sudoku_state notes = {0};
+    in = blank();
+    sudoku_frame(&u, &in, &notes);
+    notes.cell = 2;
+    in.pad_down[0] = 1;
+    in.pad_hit[12] = 50;
+    sudoku_frame(&u, &in, &notes);
+    expect(notes.grid[2] == '0' && (notes.notes[2] & 1), "note marks a possible number");
+    expect(px(&u, 200, 152) == 0x1e4a32, "note shows under the pads");
+    in = blank();
+    in.pad_hit[2] = 40;
+    in.pad_down[2] = 1;
+    sudoku_frame(&u, &in, &notes);
+    expect(notes.notes[2] == 0, "clear notes removes the mark");
+
+    struct sudoku_state clash = {0};
+    in = blank();
+    sudoku_frame(&u, &in, &clash);
+    clash.cell = 1;
+    in.pad_down[7] = 1;
+    in.pad_hit[9] = 40;
+    sudoku_frame(&u, &in, &clash);
+    expect(clash.grid[1] == '5', "guess repeats the clue");
+    expect(px(&u, 8, 32) != 0x6a2832 && px(&u, 29, 30) != 0x6a2832, "a clue is not marked wrong");
+    clash.cell = 2;
+    in = blank();
+    in.pad_down[7] = 1;
+    in.pad_hit[9] = 40;
+    sudoku_frame(&u, &in, &clash);
+    expect(px(&u, 29, 30) == 0x6a2832 && px(&u, 50, 30) == 0x6a2832, "two entered digits match");
+    expect(px(&u, 8, 32) != 0x6a2832, "the clue stays unmarked");
 
     in = blank();
     in.shift = 1;
