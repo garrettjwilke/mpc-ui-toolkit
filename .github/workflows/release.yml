@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Check the tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.].+)?$'; then
+            echo "Tag must look like v1.2.3 or v1.2.3-beta" >&2
+            exit 1
+          fi
+
+      - name: Stop if this release already exists
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: make
+
+      - name: Check the binaries
+        run: |
+          for name in clear boxes buttons highlight soft-keys knobs list pads anim; do
+            test -x "bin/$name"
+            file "bin/$name" | grep -q aarch64
+          done
+
+      - name: Zip the bin directory
+        run: zip -r mpc-ui-toolkit-bin.zip bin
+
+      - name: Publish the release
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" mpc-ui-toolkit-bin.zip \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes "Static aarch64 Linux binaries. Unzip and load one from \`bin/\` with mpc-boot-thingy."
