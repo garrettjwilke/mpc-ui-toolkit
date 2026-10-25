@@ -22,6 +22,8 @@ struct pads_state { uint32_t color[16]; int ready; };
 int pads_frame(struct ui *u, const struct input *in, void *state);
 struct anim_state { int x; int dir; };
 int anim_frame(struct ui *u, const struct input *in, void *state);
+struct text_edit_state { char name[32]; struct ui_text_editor editor; int editing; const char *last_action; };
+int text_edit_frame(struct ui *u, const struct input *in, void *state);
 
 static int failed;
 
@@ -619,6 +621,195 @@ static void test_anim(void) {
     expect(anim_frame(&u, &pad, &s) == 1, "pad 1 quits");
 }
 
+static void test_text_editor(void) {
+    static uint32_t buf_px[UI_W * UI_H];
+    struct ui u = {.px = buf_px};
+    struct ui_text_editor_style st = ui_text_editor_style_default();
+
+    char buf[32] = "";
+    struct ui_text_editor ed;
+    ui_text_editor_init(&ed, buf, sizeof buf, "TEST");
+    expect(ed.len == 0, "init len 0");
+    expect(ed.cursor == 0, "init cursor 0");
+    expect(ed.sel_start == -1, "init sel_start -1");
+
+    // 1. Pad 1 rollover: 'a' -> 'b' -> 'c' -> 'a'
+    struct input in1 = blank();
+    in1.pad_hit[0] = 100;
+    expect(ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in1) == UI_TEXT_ACTIVE, "editor active");
+    expect(strcmp(buf, "a") == 0, "pad 1 once 'a'");
+    expect(ed.len == 1 && ed.cursor == 0 && ed.last_pad == 0 && ed.pad_cycle == 0, "pad 1 state 'a'");
+
+    expect(ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in1) == UI_TEXT_ACTIVE, "editor active 2");
+    expect(strcmp(buf, "b") == 0, "pad 1 twice 'b'");
+    expect(ed.len == 1 && ed.pad_cycle == 1, "pad 1 state 'b'");
+
+    expect(ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in1) == UI_TEXT_ACTIVE, "editor active 3");
+    expect(strcmp(buf, "c") == 0, "pad 1 thrice 'c'");
+    expect(ed.len == 1 && ed.pad_cycle == 2, "pad 1 state 'c'");
+
+    expect(ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in1) == UI_TEXT_ACTIVE, "editor active 4");
+    expect(strcmp(buf, "a") == 0, "pad 1 4th rollover 'a'");
+    expect(ed.len == 1 && ed.pad_cycle == 0, "pad 1 state rollover 'a'");
+
+    // 2. Shift Pad 1 uppercase: 'A' -> 'B' -> 'C'
+    struct input in_shift = blank();
+    in_shift.shift = 1;
+    in_shift.pad_hit[0] = 100;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_shift);
+    expect(strcmp(buf, "B") == 0, "shift pad 1 gives 'B'");
+
+    // 3. Wheel right navigation and auto-append
+    struct input in_right = blank();
+    in_right.encoder = 1;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_right);
+    expect(ed.cursor == 1, "cursor moves right to 1");
+
+    // Hit Pad 2 (index 1) to append 'd'
+    struct input in_pad2 = blank();
+    in_pad2.pad_hit[1] = 100;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_pad2);
+    expect(strcmp(buf, "Bd") == 0, "appends 'd' to form 'Bd'");
+    expect(ed.len == 2, "len becomes 2");
+
+    // 4. Cursor boundary checks
+    struct input in_left3 = blank();
+    in_left3.encoder = -3;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_left3);
+    expect(ed.cursor == 0, "cursor clamped at 0");
+
+    in_right.encoder = 5;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_right);
+    expect(ed.cursor == 2, "cursor clamped at len 2");
+
+    // 5. Selection with Shift + wheel
+    ed.cursor = 0;
+    struct input in_sel = blank();
+    in_sel.shift = 1;
+    in_sel.encoder = 2;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_sel);
+    expect(ed.sel_start == 0 && ed.sel_end == 2, "selected range [0, 2)");
+
+    // Moving without shift clears selection
+    struct input in_step = blank();
+    in_step.encoder = -1;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_step);
+    expect(ed.sel_start == -1 && ed.sel_end == -1, "clears selection on unshifted move");
+
+    // 6. Copy, Cut, Paste via Soft buttons
+    // Select both characters again
+    ed.cursor = 0;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_sel);
+
+    // Shift + B2 = Copy
+    struct input in_copy = blank();
+    in_copy.shift = 1;
+    in_copy.down = (1u << IN_B2);
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_copy);
+
+    // Shift + B3 = Paste (overwriting selection)
+    struct input in_paste = blank();
+    in_paste.shift = 1;
+    in_paste.down = (1u << IN_B3);
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_paste);
+    expect(strcmp(buf, "Bd") == 0, "paste replaces selection with 'Bd'");
+
+    // Paste again at end: "BdBd"
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_paste);
+    expect(strcmp(buf, "BdBd") == 0, "paste appends 'Bd' to make 'BdBd'");
+    expect(ed.len == 4, "len 4 after paste");
+
+    // Select first 2 chars and Cut (Shift + B1)
+    ed.cursor = 0;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_sel);
+    struct input in_cut = blank();
+    in_cut.shift = 1;
+    in_cut.down = (1u << IN_B1);
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_cut);
+    expect(strcmp(buf, "Bd") == 0, "cut leaves 'Bd'");
+    expect(ed.len == 2, "len 2 after cut");
+
+    // 7. Delete / Backspace (Pad 16 and ERASE)
+    struct input in_erase = blank();
+    in_erase.down = (1u << IN_ERASE);
+    ed.cursor = 2; // at end of "Bd"
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_erase);
+    expect(strcmp(buf, "B") == 0, "erase deletes 'd'");
+    expect(ed.len == 1, "len 1 after erase");
+
+    struct input in_del = blank();
+    in_del.pad_hit[15] = 100; // Pad 16
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_del);
+    expect(strcmp(buf, "") == 0, "pad 16 deletes 'B'");
+    expect(ed.len == 0, "len 0 after delete");
+
+    // 8. Space entry via Pad 15 and B2
+    struct input in_spc_pad = blank();
+    in_spc_pad.pad_hit[14] = 100;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_spc_pad);
+    expect(strcmp(buf, " ") == 0, "pad 15 inserts space");
+
+    struct input in_b2 = blank();
+    in_b2.down = (1u << IN_B2);
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_b2);
+    expect(strcmp(buf, "  ") == 0, "b2 inserts second space");
+
+    // 9. Clear all via Shift + Pad 16
+    struct input in_clr = blank();
+    in_clr.shift = 1;
+    in_clr.pad_hit[15] = 100;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_clr);
+    expect(strcmp(buf, "") == 0, "shift pad 16 clears all text");
+    expect(ed.len == 0, "len 0 after clear");
+
+    // 10. Confirmation (B3), Cancel (B1), and Encoder Press (Append character space)
+    struct input in_cancel = blank();
+    in_cancel.down = (1u << IN_B1);
+    expect(ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_cancel) == UI_TEXT_CANCEL, "B1 cancels");
+
+    struct input in_ok = blank();
+    in_ok.down = (1u << IN_B3);
+    expect(ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_ok) == UI_TEXT_OK, "B3 confirms");
+
+    // Encoder press appends a character space and advances cursor
+    ed.cursor = 0;
+    struct input in_pad8 = blank();
+    in_pad8.pad_hit[7] = 100; // Pad 8 -> 'v'
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_pad8);
+    expect(strcmp(buf, "v") == 0, "pad 8 types 'v'");
+    expect(ed.len == 1 && ed.cursor == 0, "cursor at 0 on 'v'");
+
+    struct input in_enc_press = blank();
+    in_enc_press.encoder_press = 1;
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_enc_press);
+    expect(strcmp(buf, "v ") == 0, "encoder press appends character space");
+    expect(ed.len == 2 && ed.cursor == 1, "cursor advanced to 1 on space");
+
+    // Typing pad 1 now replaces that space with 'a'
+    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in1);
+    expect(strcmp(buf, "va") == 0, "next pad replaces space with 'a'");
+    expect(ed.len == 2 && ed.cursor == 1, "cursor remains at 1 on 'a'");
+
+    // 11. Test text_edit_frame integration
+    struct text_edit_state tes = {.editing = 1};
+    strncpy(tes.name, "Track_1", sizeof tes.name - 1);
+    ui_text_editor_init(&tes.editor, tes.name, sizeof tes.name, "RENAME");
+    struct input blank_in = blank();
+    expect(text_edit_frame(&u, &blank_in, &tes) == 0, "text edit frame active");
+    expect(text_edit_frame(&u, &in_ok, &tes) == 0, "text edit frame confirms");
+    expect(tes.editing == 0, "editing stopped after confirm");
+    expect(strcmp(tes.last_action, "Saved") == 0, "last action saved");
+
+    // 12. Shift while editing does not open quit menu
+    struct text_edit_state tes2 = {.editing = 1};
+    strncpy(tes2.name, "Kick", sizeof tes2.name - 1);
+    ui_text_editor_init(&tes2.editor, tes2.name, sizeof tes2.name, "RENAME");
+    struct input shift_in = blank();
+    shift_in.shift = 1;
+    expect(text_edit_frame(&u, &shift_in, &tes2) == 0, "shift does not quit while editing");
+    expect(tes2.editing == 1, "still editing when shift is pressed");
+}
+
 int main(void) {
     test_parser();
     test_changes();
@@ -635,6 +826,7 @@ int main(void) {
     test_pad_modes();
     test_sudoku();
     test_anim();
+    test_text_editor();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
         return 1;

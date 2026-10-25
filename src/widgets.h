@@ -164,3 +164,56 @@ int ui_menu_open(const struct ui_menu *m, const struct input *in);
 // A pad or key bound to a row chooses that row. Returns the item id, or -1.
 int ui_menu(struct ui *u, int x, int y, int w, int h, struct ui_menu *m, struct ui_menu_style st,
             const struct input *in);
+
+// Return status codes from ui_text_editor
+enum {
+    UI_TEXT_ACTIVE = 0,   // Still editing
+    UI_TEXT_OK     = 1,   // User confirmed (Encoder press or B3)
+    UI_TEXT_CANCEL = -1   // User cancelled (B1)
+};
+
+struct ui_text_editor_style {
+    uint32_t fill;         // Editor background fill
+    uint32_t text_box;     // Text input box fill
+    uint32_t text;         // Default text color
+    uint32_t title;        // Header title color
+    uint32_t border;       // Outer & box border color
+    uint32_t highlight;    // Cursor & selection highlight color
+    uint32_t pad_fill;     // Inactive pad fill
+    uint32_t pad_text;     // Pad text color
+    uint32_t pad_active;   // Active/hit pad color
+    int border_px;
+};
+
+struct ui_text_editor {
+    char *buf;             // Target string buffer
+    int max_len;           // Buffer capacity (including null terminator)
+    int len;               // Current string length
+    int cursor;            // Cursor position: 0 <= cursor <= len
+    int sel_anchor;        // Selection anchor (-1 when no selection)
+    int sel_start;         // Selection start index (-1 when none)
+    int sel_end;           // Selection end index (exclusive, -1 when none)
+    int last_pad;          // Last pad index pressed (0..15, or -1)
+    int pad_cycle;         // Current cycle index on last_pad
+    const char *title;     // Header title
+    unsigned pad_lit;      // Mask of lit pad LEDs
+};
+
+// Initializes editor state with target buffer and capacity
+void ui_text_editor_init(struct ui_text_editor *ed, char *buf, int max_len, const char *title);
+
+// Default styling matching the toolkit aesthetic
+struct ui_text_editor_style ui_text_editor_style_default(void);
+
+// Programmatic editing & clipboard operations
+void ui_text_editor_cut(struct ui_text_editor *ed);
+void ui_text_editor_copy(struct ui_text_editor *ed);
+void ui_text_editor_paste(struct ui_text_editor *ed);
+void ui_text_editor_delete(struct ui_text_editor *ed);
+void ui_text_editor_clear(struct ui_text_editor *ed);
+
+// Draws the text editor within rect (x, y, w, h) and processes hardware inputs.
+// Soft keys bar is placed at top of rect under physical B1, B2, B3.
+// Returns UI_TEXT_ACTIVE, UI_TEXT_OK, or UI_TEXT_CANCEL.
+int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_editor *ed,
+                   struct ui_text_editor_style st, const struct input *in);

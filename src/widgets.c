@@ -582,3 +582,478 @@ int ui_menu(struct ui *u, int x, int y, int w, int h, struct ui_menu *m, struct 
     m->pad_lit = lit;
     return chosen;
 }
+
+static const char *const PAD_MAP_NORMAL[16] = {
+    "abc",   // Pad 1 (bottom-left)
+    "def",   // Pad 2
+    "ghi",   // Pad 3
+    "jkl",   // Pad 4
+    "mno",   // Pad 5
+    "pqr",   // Pad 6
+    "stu",   // Pad 7
+    "vwx",   // Pad 8
+    "yz",    // Pad 9
+    "123",   // Pad 10
+    "456",   // Pad 11
+    "7890",  // Pad 12
+    "_-. ",  // Pad 13 (top-left)
+    "/:;+",  // Pad 14
+    " ",     // Pad 15 (Space)
+    ""       // Pad 16 (DEL action)
+};
+
+static const char *const PAD_MAP_SHIFT[16] = {
+    "ABC",   // Pad 1
+    "DEF",   // Pad 2
+    "GHI",   // Pad 3
+    "JKL",   // Pad 4
+    "MNO",   // Pad 5
+    "PQR",   // Pad 6
+    "STU",   // Pad 7
+    "VWX",   // Pad 8
+    "YZ",    // Pad 9
+    "!@#",   // Pad 10
+    "$%^",   // Pad 11
+    "&*()",  // Pad 12
+    "+=~|",  // Pad 13
+    "?<>\\", // Pad 14
+    " ",     // Pad 15
+    ""       // Pad 16 (CLR action)
+};
+
+static char g_ui_clipboard[128] = {0};
+
+void ui_text_editor_init(struct ui_text_editor *ed, char *buf, int max_len, const char *title) {
+    if (!ed) return;
+    memset(ed, 0, sizeof *ed);
+    ed->buf = buf;
+    ed->max_len = max_len;
+    ed->title = title ? title : "TEXT INPUT";
+    ed->len = buf ? (int)strlen(buf) : 0;
+    ed->cursor = ed->len;
+    ed->sel_anchor = -1;
+    ed->sel_start = -1;
+    ed->sel_end = -1;
+    ed->last_pad = -1;
+    ed->pad_cycle = 0;
+    ed->pad_lit = 0;
+}
+
+struct ui_text_editor_style ui_text_editor_style_default(void) {
+    struct ui_text_editor_style st = {
+        .fill = 0x14161c,
+        .text_box = 0x0e1014,
+        .text = UI_TEXT,
+        .title = UI_HL,
+        .border = 0x3e4656,
+        .highlight = UI_HL,
+        .pad_fill = 0x222632,
+        .pad_text = 0xd0d4dc,
+        .pad_active = 0x404860,
+        .border_px = 1,
+    };
+    return st;
+}
+
+void ui_text_editor_copy(struct ui_text_editor *ed) {
+    if (!ed || !ed->buf) return;
+    if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start && ed->sel_start < ed->len) {
+        int count = ed->sel_end - ed->sel_start;
+        if (count >= (int)sizeof(g_ui_clipboard)) count = (int)sizeof(g_ui_clipboard) - 1;
+        memcpy(g_ui_clipboard, ed->buf + ed->sel_start, (size_t)count);
+        g_ui_clipboard[count] = '\0';
+    }
+}
+
+void ui_text_editor_delete(struct ui_text_editor *ed) {
+    if (!ed || !ed->buf) return;
+    if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+        int s0 = ed->sel_start;
+        int s1 = ed->sel_end;
+        if (s1 > ed->len) s1 = ed->len;
+        int count = s1 - s0;
+        if (count > 0) {
+            memmove(ed->buf + s0, ed->buf + s1, (size_t)(ed->len - s1 + 1));
+            ed->len -= count;
+            ed->cursor = s0;
+        }
+        ed->sel_anchor = -1;
+        ed->sel_start = -1;
+        ed->sel_end = -1;
+        ed->last_pad = -1;
+        ed->pad_cycle = 0;
+    } else if (ed->cursor > 0 && ed->len > 0) {
+        memmove(ed->buf + ed->cursor - 1, ed->buf + ed->cursor, (size_t)(ed->len - ed->cursor + 1));
+        ed->cursor--;
+        ed->len--;
+        ed->last_pad = -1;
+        ed->pad_cycle = 0;
+    }
+}
+
+void ui_text_editor_cut(struct ui_text_editor *ed) {
+    ui_text_editor_copy(ed);
+    ui_text_editor_delete(ed);
+}
+
+void ui_text_editor_paste(struct ui_text_editor *ed) {
+    if (!ed || !ed->buf) return;
+    if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+        ui_text_editor_delete(ed);
+    }
+    int clip_len = (int)strlen(g_ui_clipboard);
+    if (clip_len <= 0) return;
+    int avail = ed->max_len - 1 - ed->len;
+    if (clip_len > avail) clip_len = avail;
+    if (clip_len <= 0) return;
+
+    if (ed->cursor < 0) ed->cursor = 0;
+    if (ed->cursor > ed->len) ed->cursor = ed->len;
+
+    memmove(ed->buf + ed->cursor + clip_len, ed->buf + ed->cursor, (size_t)(ed->len - ed->cursor + 1));
+    memcpy(ed->buf + ed->cursor, g_ui_clipboard, (size_t)clip_len);
+    ed->cursor += clip_len;
+    ed->len += clip_len;
+    ed->last_pad = -1;
+    ed->pad_cycle = 0;
+}
+
+void ui_text_editor_clear(struct ui_text_editor *ed) {
+    if (!ed || !ed->buf) return;
+    ed->buf[0] = '\0';
+    ed->len = 0;
+    ed->cursor = 0;
+    ed->sel_anchor = -1;
+    ed->sel_start = -1;
+    ed->sel_end = -1;
+    ed->last_pad = -1;
+    ed->pad_cycle = 0;
+}
+
+int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_editor *ed,
+                   struct ui_text_editor_style st, const struct input *in) {
+    if (!u || !ed || !ed->buf) return UI_TEXT_CANCEL;
+
+    int status = UI_TEXT_ACTIVE;
+
+    // Process navigation and input
+    if (in) {
+        // Navigation: encoder wheel and - / + buttons
+        int step = in->encoder;
+        if (input_down(in, IN_PLUS)) step++;
+        if (input_down(in, IN_MINUS)) step--;
+
+        if (step != 0) {
+            if (in->shift) {
+                // Expanding or contracting selection
+                if (ed->sel_anchor < 0) {
+                    ed->sel_anchor = ed->cursor;
+                }
+                ed->cursor += step;
+                if (ed->cursor < 0) ed->cursor = 0;
+                if (ed->cursor > ed->len) ed->cursor = ed->len;
+
+                if (ed->cursor == ed->sel_anchor) {
+                    ed->sel_start = -1;
+                    ed->sel_end = -1;
+                } else if (ed->cursor < ed->sel_anchor) {
+                    ed->sel_start = ed->cursor;
+                    ed->sel_end = ed->sel_anchor;
+                } else {
+                    ed->sel_start = ed->sel_anchor;
+                    ed->sel_end = ed->cursor;
+                }
+            } else {
+                // Moving without shift clears selection
+                ed->sel_anchor = -1;
+                ed->sel_start = -1;
+                ed->sel_end = -1;
+                ed->cursor += step;
+                if (ed->cursor < 0) ed->cursor = 0;
+                if (ed->cursor > ed->len) ed->cursor = ed->len;
+            }
+            ed->last_pad = -1;
+            ed->pad_cycle = 0;
+        }
+
+        // Hardware ERASE button
+        if (input_down(in, IN_ERASE)) {
+            ui_text_editor_delete(ed);
+        }
+
+        // Soft buttons B1, B2, B3 (placed at the top of the screen)
+        if (in->shift) {
+            if (input_down(in, IN_B1)) ui_text_editor_cut(ed);
+            if (input_down(in, IN_B2)) ui_text_editor_copy(ed);
+            if (input_down(in, IN_B3)) ui_text_editor_paste(ed);
+        } else {
+            if (input_down(in, IN_B1)) status = UI_TEXT_CANCEL;
+            if (input_down(in, IN_B2)) {
+                // Insert space
+                if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+                    ui_text_editor_delete(ed);
+                }
+                if (ed->cursor == ed->len) {
+                    if (ed->len < ed->max_len - 1) {
+                        ed->buf[ed->cursor] = ' ';
+                        ed->len++;
+                        ed->buf[ed->len] = '\0';
+                        ed->cursor++;
+                    }
+                } else {
+                    ed->buf[ed->cursor] = ' ';
+                }
+                ed->last_pad = -1;
+                ed->pad_cycle = 0;
+            }
+            if (input_down(in, IN_B3)) status = UI_TEXT_OK;
+        }
+
+        // Encoder press: append / insert character space at cursor and advance cursor
+        if (in->encoder_press) {
+            if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+                ui_text_editor_delete(ed);
+            }
+            if (ed->len < ed->max_len - 1) {
+                int insert_pos;
+                if (ed->len == 0) {
+                    insert_pos = 0;
+                } else if (ed->cursor < ed->len) {
+                    insert_pos = ed->cursor + 1;
+                } else {
+                    insert_pos = ed->len;
+                }
+                memmove(ed->buf + insert_pos + 1, ed->buf + insert_pos, (size_t)(ed->len - insert_pos + 1));
+                ed->buf[insert_pos] = ' ';
+                ed->len++;
+                ed->cursor = insert_pos;
+                ed->last_pad = -1;
+                ed->pad_cycle = 0;
+                ed->sel_anchor = -1;
+                ed->sel_start = -1;
+                ed->sel_end = -1;
+            }
+        }
+
+        // Pad hits
+        for (int p = 0; p < 16; p++) {
+            if (in->pad_hit[p] < 0) continue;
+            int shift = in->shift;
+
+            if (p == 15) {
+                // Pad 16: DEL (or CLR if shifted)
+                if (shift) ui_text_editor_clear(ed);
+                else ui_text_editor_delete(ed);
+            } else if (p == 14) {
+                // Pad 15: SPC
+                if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+                    ui_text_editor_delete(ed);
+                }
+                if (ed->cursor == ed->len) {
+                    if (ed->len < ed->max_len - 1) {
+                        ed->buf[ed->cursor] = ' ';
+                        ed->len++;
+                        ed->buf[ed->len] = '\0';
+                        ed->cursor++;
+                    }
+                } else {
+                    ed->buf[ed->cursor] = ' ';
+                }
+                ed->last_pad = -1;
+                ed->pad_cycle = 0;
+            } else {
+                // Character pad (Pads 1..14)
+                const char *chars = shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+                int nchars = (int)strlen(chars);
+                if (nchars > 0) {
+                    if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+                        ui_text_editor_delete(ed);
+                    }
+                    if (ed->cursor == ed->len) {
+                        if (ed->len < ed->max_len - 1) {
+                            ed->buf[ed->cursor] = chars[0];
+                            ed->len++;
+                            ed->buf[ed->len] = '\0';
+                            ed->last_pad = p;
+                            ed->pad_cycle = 0;
+                        }
+                    } else {
+                        if (ed->last_pad == p) {
+                            ed->pad_cycle = (ed->pad_cycle + 1) % nchars;
+                            ed->buf[ed->cursor] = chars[ed->pad_cycle];
+                        } else {
+                            ed->last_pad = p;
+                            ed->pad_cycle = 0;
+                            ed->buf[ed->cursor] = chars[0];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Outer frame
+    struct ui_paint panel = {
+        .fill_set = 1, .fill = st.fill,
+        .border_set = st.border_px > 0, .border = st.border, .border_px = st.border_px
+    };
+    ui_box(u, x, y, w, h, panel);
+
+    // 1. Soft Keys Bar (at the top of the screen)
+    int sk_x = x + 8;
+    int sk_y = y + 6;
+    int sk_w = w - 16;
+    int sk_h = 24;
+
+    const char *labels[3];
+    if (in && in->shift) {
+        labels[0] = "B1: CUT";
+        labels[1] = "B2: COPY";
+        labels[2] = "B3: PASTE";
+    } else {
+        labels[0] = "B1: CANCEL";
+        labels[1] = "B2: SPACE";
+        labels[2] = "B3: OK";
+    }
+
+    for (int i = 0; i < 3; i++) {
+        int bx, bw;
+        third(sk_x, sk_w, 4, i, &bx, &bw);
+        int down = in && ((in->held >> soft_button[i]) & 1);
+        struct ui_paint bp = {
+            .fill_set = 1, .fill = down ? st.highlight : st.pad_fill,
+            .border_set = 1, .border = st.border, .border_px = 1
+        };
+        ui_box(u, bx, sk_y, bw, sk_h, bp);
+        center_text(u, bx, sk_y, bw, sk_h, labels[i], down ? st.fill : st.text);
+    }
+
+    // 2. Title and Length Counter
+    int info_y = sk_y + sk_h + 6;
+    ui_text(u, x + 10, info_y, ed->title ? ed->title : "TEXT INPUT", st.title, 1);
+
+    char count_str[16];
+    snprintf(count_str, sizeof count_str, "%d/%d", ed->len, ed->max_len > 0 ? ed->max_len - 1 : 0);
+    int cw = (int)strlen(count_str) * FONT_S_W;
+    ui_text(u, x + w - 10 - cw, info_y, count_str, 0x8890a0, 1);
+
+    // 3. Text Input Box
+    int tb_x = x + 8;
+    int tb_y = info_y + FONT_S_H + 4;
+    int tb_w = w - 16;
+    int tb_h = 24;
+
+    struct ui_paint tbp = {
+        .fill_set = 1, .fill = st.text_box,
+        .border_set = 1, .border = st.highlight, .border_px = 1
+    };
+    ui_box(u, tb_x, tb_y, tb_w, tb_h, tbp);
+
+    int tx = tb_x + 8;
+    int ty = tb_y + (tb_h - FONT_S_H) / 2;
+
+    // Selection highlight background
+    if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
+        int s0 = ed->sel_start;
+        int s1 = ed->sel_end;
+        if (s1 > ed->len) s1 = ed->len;
+        int hx = tx + s0 * FONT_S_W;
+        int hw = (s1 - s0) * FONT_S_W;
+        fill_row(u, hx, ty - 2, hw, FONT_S_H + 4, 0x4a3a18);
+    }
+
+    // Block cursor indicator
+    int cur_x = tx + ed->cursor * FONT_S_W;
+    fill_row(u, cur_x, ty - 1, FONT_S_W, FONT_S_H + 2, st.highlight);
+
+    // Text characters
+    for (int c = 0; c < ed->len; c++) {
+        char ch_buf[2] = {ed->buf[c], 0};
+        int in_sel = (c >= ed->sel_start && c < ed->sel_end);
+        uint32_t c_color = in_sel ? UI_HL : st.text;
+        if (c == ed->cursor) {
+            c_color = st.text_box; // inverted text on the block cursor
+        }
+        ui_text(u, tx + c * FONT_S_W, ty, ch_buf, c_color, 1);
+    }
+
+    // 4. 4x4 Pad Grid Legend (at the bottom of the screen)
+    int grid_x = x + 8;
+    int grid_y = tb_y + tb_h + 6;
+    int grid_w = w - 16;
+    int grid_h = (y + h) - grid_y - 6;
+    int gap = 3;
+
+    unsigned lit = 0;
+    for (int p = 0; p < 16; p++) {
+        int cx, cy, cw, ch;
+        pad_cell(grid_x, grid_y, grid_w, grid_h, gap, p, &cx, &cy, &cw, &ch);
+
+        int hit = in && (in->pad_down[p] || in->pad_hit[p] >= 0);
+        int is_last = (ed->last_pad == p);
+
+        uint32_t pad_bg = hit ? st.pad_active : (is_last ? 0x282c3c : st.pad_fill);
+        uint32_t pad_border = is_last ? st.highlight : st.border;
+
+        struct ui_paint pad_p = {
+            .fill_set = 1, .fill = pad_bg,
+            .border_set = 1, .border = pad_border, .border_px = 1
+        };
+        ui_box(u, cx, cy, cw, ch, pad_p);
+
+        // Pad number in corner
+        char num_buf[4];
+        snprintf(num_buf, sizeof num_buf, "%d", p + 1);
+        ui_text(u, cx + 3, cy + 2, num_buf, 0x687080, 1);
+
+        // Pad character legend
+        if (p == 14) {
+            center_text(u, cx, cy, cw, ch, "SPC", hit ? UI_TEXT : 0xc0c8d8);
+        } else if (p == 15) {
+            center_text(u, cx, cy, cw, ch, in && in->shift ? "CLR" : "DEL", hit ? UI_TEXT : 0xd88080);
+        } else {
+            const char *s = in && in->shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+            int n = (int)strlen(s);
+            if (is_last && ed->pad_cycle >= 0 && ed->pad_cycle < n) {
+                // Highlight active cycle character
+                int tw = (n * 2 - 1) * FONT_S_W;
+                int sx = cx + (cw - tw) / 2;
+                int sy = cy + (ch - FONT_S_H) / 2;
+                for (int k = 0; k < n; k++) {
+                    char ch_str[2] = {s[k], 0};
+                    uint32_t col = (k == ed->pad_cycle) ? st.highlight : st.pad_text;
+                    ui_text(u, sx + k * 2 * FONT_S_W, sy, ch_str, col, 1);
+                }
+            } else {
+                char spaced[16];
+                int sp_len = 0;
+                for (int k = 0; s[k] && sp_len < (int)sizeof(spaced) - 2; k++) {
+                    spaced[sp_len++] = s[k];
+                    if (s[k + 1]) spaced[sp_len++] = ' ';
+                }
+                spaced[sp_len] = '\0';
+                center_text(u, cx, cy, cw, ch, spaced, st.pad_text);
+            }
+        }
+
+        // Pad LED updates
+        uint32_t led_col = 0;
+        if (hit) led_col = st.highlight;
+        else if (is_last) led_col = in && in->shift ? 0xff8800 : 0x0088ff;
+        else if (in && in->shift) led_col = 0x301800;
+        else led_col = 0x081020;
+
+        led_of(u, p, led_col);
+        lit |= (1u << p);
+    }
+
+    if (status != UI_TEXT_ACTIVE) {
+        if (ed->pad_lit) pads_off(u, ed->pad_lit);
+        ed->pad_lit = 0;
+    } else {
+        if (ed->pad_lit & ~lit) pads_off(u, ed->pad_lit & ~lit);
+        ed->pad_lit = lit;
+    }
+
+    return status;
+}

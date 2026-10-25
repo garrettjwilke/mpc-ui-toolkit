@@ -22,6 +22,8 @@ struct pads_state { uint32_t color[16]; int ready; };
 int pads_frame(struct ui *u, const struct input *in, void *state);
 struct anim_state { int x; int dir; };
 int anim_frame(struct ui *u, const struct input *in, void *state);
+struct text_edit_state { char name[32]; struct ui_text_editor editor; int editing; const char *last_action; };
+int text_edit_frame(struct ui *u, const struct input *in, void *state);
 
 static int write_ppm(const char *path, const uint32_t *px) {
     FILE *f = fopen(path, "wb");
@@ -77,6 +79,10 @@ int main(void) {
     rc |= shot("anim", anim_frame, &anim);
     struct sudoku_state sudoku = {0};
     rc |= shot("sudoku", sudoku_frame, &sudoku);
+    struct text_edit_state text_edit = {.editing = 1};
+    strncpy(text_edit.name, "Kick_808", sizeof text_edit.name - 1);
+    ui_text_editor_init(&text_edit.editor, text_edit.name, sizeof text_edit.name, "RENAME SAMPLE");
+    rc |= shot("text-edit", text_edit_frame, &text_edit);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};
