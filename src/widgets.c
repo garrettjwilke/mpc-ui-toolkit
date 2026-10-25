@@ -647,6 +647,8 @@ struct ui_text_editor_style ui_text_editor_style_default(void) {
         .title = UI_HL,
         .border = 0x3e4656,
         .highlight = UI_HL,
+        .cursor = 0x6a5220,
+        .cursor_text = 0xffffff,
         .pad_fill = 0x222632,
         .pad_text = 0xd0d4dc,
         .pad_active = 0x404860,
@@ -962,9 +964,12 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         fill_row(u, hx, ty - 2, hw, FONT_S_H + 4, 0x4a3a18);
     }
 
-    // Block cursor indicator
+    // Block cursor indicator (dulled tone for legibility without glare)
+    uint32_t cur_bg = st.cursor ? st.cursor : 0x6a5220;
+    uint32_t cur_fg = st.cursor_text ? st.cursor_text : 0xffffff;
+
     int cur_x = tx + ed->cursor * FONT_S_W;
-    fill_row(u, cur_x, ty - 1, FONT_S_W, FONT_S_H + 2, st.highlight);
+    fill_row(u, cur_x, ty - 1, FONT_S_W, FONT_S_H + 2, cur_bg);
 
     // Text characters
     for (int c = 0; c < ed->len; c++) {
@@ -972,7 +977,7 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         int in_sel = (c >= ed->sel_start && c < ed->sel_end);
         uint32_t c_color = in_sel ? UI_HL : st.text;
         if (c == ed->cursor) {
-            c_color = st.text_box; // inverted text on the block cursor
+            c_color = cur_fg; // crisp white text on the dulled block cursor
         }
         ui_text(u, tx + c * FONT_S_W, ty, ch_buf, c_color, 1);
     }

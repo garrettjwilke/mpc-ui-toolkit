@@ -82,6 +82,9 @@ int main(void) {
     struct text_edit_state text_edit = {.editing = 1};
     strncpy(text_edit.name, "Kick_808", sizeof text_edit.name - 1);
     ui_text_editor_init(&text_edit.editor, text_edit.name, sizeof text_edit.name, "RENAME SAMPLE");
+    text_edit.editor.cursor = 7;
+    text_edit.editor.last_pad = 11;
+    text_edit.editor.pad_cycle = 1;
     rc |= shot("text-edit", text_edit_frame, &text_edit);
 
     uint32_t buf[UI_W * UI_H];

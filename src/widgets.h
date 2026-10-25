@@ -178,7 +178,9 @@ struct ui_text_editor_style {
     uint32_t text;         // Default text color
     uint32_t title;        // Header title color
     uint32_t border;       // Outer & box border color
-    uint32_t highlight;    // Cursor & selection highlight color
+    uint32_t highlight;    // Selection highlight color
+    uint32_t cursor;       // Cursor block color (dulled for legibility)
+    uint32_t cursor_text;  // Text color on cursor
     uint32_t pad_fill;     // Inactive pad fill
     uint32_t pad_text;     // Pad text color
     uint32_t pad_active;   // Active/hit pad color
