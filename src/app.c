@@ -39,9 +39,9 @@ static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struc
     int quit = frame(&u, in, state);
     int rects[UI_H][4];
     int n = ui_changes(back, front, rects);
-    present(scr, front, rects, n);
     for (int i = 0; i < u.nled; i++)
         surface_pad(midi, u.led[i].index, u.led[i].r, u.led[i].g, u.led[i].b);
+    present(scr, front, rects, n);
     if (wake_ms) *wake_ms = u.wake_ms;
     return quit;
 }
