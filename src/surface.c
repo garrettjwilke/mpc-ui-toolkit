@@ -20,6 +20,12 @@ static void send_bytes(int fd, const unsigned char *b, size_t n) {
     }
 }
 
+static void send_ch16_meter_power(int fd, int on) {
+    unsigned char m[6] = {0xBF, 0x00, (unsigned char)(on ? 0x7F : 0x00),
+                          0xBF, 0x01, (unsigned char)(on ? 0x7F : 0x00)};
+    send_bytes(fd, m, sizeof m);
+}
+
 static int card_number(void) {
     char link[64];
     ssize_t n = readlink("/dev/snd/by-path/platform-fe670000.serial", link, sizeof link - 1);
@@ -34,6 +40,9 @@ static int card_number(void) {
 
 int surface_open(struct surface *s) {
     s->fd = -1;
+    s->last_left_meter = 0;
+    s->last_right_meter = 0;
+    s->last_track_mask = 0;
     int card = card_number();
     if (card < 0) {
         fputs("control surface not found\n", stderr);
@@ -42,14 +51,68 @@ int surface_open(struct surface *s) {
     char path[32];
     snprintf(path, sizeof path, "/dev/snd/midiC%dD0", card);
     s->fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
-    if (s->fd < 0) fprintf(stderr, "%s: %s\n", path, strerror(errno));
-    return s->fd < 0 ? -1 : 0;
+    if (s->fd < 0) {
+        fprintf(stderr, "%s: %s\n", path, strerror(errno));
+        return -1;
+    }
+    send_ch16_meter_power(s->fd, 1);
+    return 0;
 }
 
 void surface_pad(struct surface *s, int pad, int r, int g, int b) {
     unsigned char m[12] = {0xF0, 0x47, 0x7F, 0x5C, 0x65, 0x00, 0x04, (unsigned char)(pad & 0x7f),
                            (unsigned char)(r & 0x7f), (unsigned char)(g & 0x7f), (unsigned char)(b & 0x7f), 0xF7};
     if (s->fd >= 0) send_bytes(s->fd, m, sizeof m);
+}
+
+void surface_meter(struct surface *s, int left_mask, int right_mask) {
+    if (s->fd < 0) return;
+    left_mask &= 0x1F;
+    right_mask &= 0x1F;
+    if (left_mask == s->last_left_meter && right_mask == s->last_right_meter) return;
+
+    if (s->last_left_meter == 0 && s->last_right_meter == 0 && (left_mask != 0 || right_mask != 0)) {
+        send_ch16_meter_power(s->fd, 1);
+    }
+
+    if (left_mask != s->last_left_meter) {
+        unsigned char m[3] = {0xB0, 83, (unsigned char)left_mask};
+        send_bytes(s->fd, m, sizeof m);
+        s->last_left_meter = left_mask;
+    }
+    if (right_mask != s->last_right_meter) {
+        unsigned char m[3] = {0xB0, 84, (unsigned char)right_mask};
+        send_bytes(s->fd, m, sizeof m);
+        s->last_right_meter = right_mask;
+    }
+
+    if (left_mask == 0 && right_mask == 0 && s->last_track_mask == 0) {
+        send_ch16_meter_power(s->fd, 0);
+    }
+}
+
+void surface_track_led(struct surface *s, int track_index) {
+    if (s->fd < 0) return;
+    int mask = (track_index >= 0 && track_index < 8) ? (1 << track_index) : 0;
+    int diff = mask ^ s->last_track_mask;
+    if (!diff) return;
+
+    if (s->last_track_mask == 0 && mask != 0) {
+        send_ch16_meter_power(s->fd, 1);
+    }
+
+    for (int i = 0; i < 8; i++) {
+        if (diff & (1 << i)) {
+            int on = (mask >> i) & 1;
+            unsigned char m[3] = {0xB0, (unsigned char)(57 + i), (unsigned char)(on ? 127 : 0)};
+            send_bytes(s->fd, m, sizeof m);
+        }
+    }
+    s->last_track_mask = mask;
+
+    if (mask == 0 && s->last_left_meter == 0 && s->last_right_meter == 0) {
+        send_ch16_meter_power(s->fd, 0);
+    }
 }
 
 static void led(struct surface *s, int note, int value) {
@@ -61,9 +124,20 @@ void surface_all_off(struct surface *s) {
     if (s->fd < 0) return;
     for (int i = 0; i < IN_N; i++) led(s, INPUT_BUTTON_NOTE[i], 0);
     for (int i = 0; i < 16; i++) surface_pad(s, i, 0, 0, 0);
+    surface_meter(s, 0, 0);
+    surface_track_led(s, -1);
+    send_ch16_meter_power(s->fd, 0);
 }
 
 void surface_close(struct surface *s) {
-    if (s->fd >= 0) close(s->fd);
+    if (s->fd >= 0) {
+        surface_meter(s, 0, 0);
+        surface_track_led(s, -1);
+        send_ch16_meter_power(s->fd, 0);
+        close(s->fd);
+    }
     s->fd = -1;
+    s->last_left_meter = 0;
+    s->last_right_meter = 0;
+    s->last_track_mask = 0;
 }

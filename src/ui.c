@@ -129,6 +129,17 @@ void ui_led(struct ui *u, int index, int r, int g, int b) {
     u->nled++;
 }
 
+void ui_meter(struct ui *u, int left_mask, int right_mask) {
+    if (!u) return;
+    u->meter_left = left_mask & 0x1f;
+    u->meter_right = right_mask & 0x1f;
+}
+
+void ui_track_led(struct ui *u, int track_index) {
+    if (!u) return;
+    u->track_led = track_index;
+}
+
 int ui_changes(const uint32_t *back, uint32_t *front, int rects[][4]) {
     int n = 0;
     for (int y = 0; y < UI_H;) {
