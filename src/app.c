@@ -43,6 +43,7 @@ static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struc
         surface_pad(midi, u.led[i].index, u.led[i].r, u.led[i].g, u.led[i].b);
     surface_meter(midi, u.meter_left, u.meter_right);
     surface_track_led(midi, u.track_led);
+    surface_buttons(midi, u.button_level, u.button_mask);
     present(scr, front, rects, n);
     if (wake_ms) *wake_ms = u.wake_ms;
     return quit;

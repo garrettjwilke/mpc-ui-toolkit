@@ -129,6 +129,14 @@ void ui_led(struct ui *u, int index, int r, int g, int b) {
     u->nled++;
 }
 
+void ui_button_led(struct ui *u, int button, int level) {
+    if (!u || button < 0 || button >= 32) return;
+    if (level < 0) level = 0;
+    if (level > 2) level = 2;
+    u->button_mask |= 1u << button;
+    u->button_level[button] = (unsigned char)level;
+}
+
 void ui_meter(struct ui *u, int left_mask, int right_mask) {
     if (!u) return;
     u->meter_left = left_mask & 0x1f;

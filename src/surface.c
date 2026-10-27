@@ -43,6 +43,7 @@ int surface_open(struct surface *s) {
     s->last_left_meter = 0;
     s->last_right_meter = 0;
     s->last_track_mask = 0;
+    memset(s->last_button, 0, sizeof s->last_button);
     int card = card_number();
     if (card < 0) {
         fputs("control surface not found\n", stderr);
@@ -115,14 +116,42 @@ void surface_track_led(struct surface *s, int track_index) {
     }
 }
 
+static int bicolour_note(int note) {
+    switch (note) {
+    case 0: case 1: case 6: case 7: case 9: case 36: case 40: case 43:
+    case 53: case 74: case 75:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int button_level_value(int note, int level) {
+    if (level <= 0) return 0;
+    if (bicolour_note(note)) return level == 1 ? 4 : 8;
+    return level == 1 ? 1 : 2;
+}
+
 static void led(struct surface *s, int note, int value) {
     unsigned char m[3] = {0xB0, (unsigned char)(note & 0x7f), (unsigned char)(value & 0x7f)};
     send_bytes(s->fd, m, 3);
 }
 
+void surface_buttons(struct surface *s, const unsigned char *level, unsigned mask) {
+    if (!s || s->fd < 0) return;
+    for (int i = 0; i < IN_N && i < 32; i++) {
+        if ((mask & (1u << i)) == 0) continue;
+        int want = level ? button_level_value(INPUT_BUTTON_NOTE[i], level[i]) : 0;
+        if (s->last_button[i] == (unsigned char)want) continue;
+        led(s, INPUT_BUTTON_NOTE[i], want);
+        s->last_button[i] = (unsigned char)want;
+    }
+}
+
 void surface_all_off(struct surface *s) {
     if (s->fd < 0) return;
     for (int i = 0; i < IN_N; i++) led(s, INPUT_BUTTON_NOTE[i], 0);
+    memset(s->last_button, 0, sizeof s->last_button);
     for (int i = 0; i < 16; i++) surface_pad(s, i, 0, 0, 0);
     surface_meter(s, 0, 0);
     surface_track_led(s, -1);

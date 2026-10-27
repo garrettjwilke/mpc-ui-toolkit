@@ -42,6 +42,8 @@ struct ui {
     int meter_left;  // 5-bit mask for Left output level meter LEDs (CC 83, right of screen)
     int meter_right; // 5-bit mask for Right output level meter LEDs (CC 84, right of screen)
     int track_led;   // 0..7 for active Track A..H LED (CC 57..64, left of screen), or -1 for off
+    unsigned button_mask;          // bit i requests button_level[i] (IN_* index)
+    unsigned char button_level[32]; // 0 off, 1 dim, 2 bright
     int64_t now_ms; // 0 reads the clock. A test can set a fake time.
     int wake_ms;    // widgets ask for another frame this soon. 0 means no request.
 };
@@ -70,6 +72,8 @@ void ui_text(struct ui *u, int x, int y, const char *s, uint32_t color, int scal
 int ui_button(struct ui *u, int x, int y, int w, int h, const char *label, struct ui_button st, const struct input *in);
 void ui_highlight(struct ui *u, int x, int y, int w, int h, uint32_t color, int thickness);
 void ui_led(struct ui *u, int index, int r, int g, int b);
+/* level: 0 off, 1 dim, 2 bright. button is an IN_* index. */
+void ui_button_led(struct ui *u, int button, int level);
 void ui_meter(struct ui *u, int left_mask, int right_mask);
 void ui_track_led(struct ui *u, int track_index);
 
