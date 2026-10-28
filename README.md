@@ -51,22 +51,27 @@ Similarly, the MPC's 16 pads sit directly **below** the display. On-screen pad l
 `hold` is every button that has to be down. `items`, `n`, and `hold` can be replaced on any frame. `ui_menu_prepare` fills those in once, and leaves a later change alone. `pad` `-1` uses the row number (pad 1 is the first row). A row's `key` is an `IN_*` button, or `-1`.
 
 ```c
+enum { APP_SAVE = 1, APP_QUIT = 2 };
+
 static const struct ui_menu_item items[] = {
-    {.label = "Quit", .id = UI_MENU_QUIT, .pad = -1, .key = -1},
-    {.label = "Save", .id = 2, .pad = 4, .key = IN_B2},
+    {.label = "Save", .id = APP_SAVE, .pad = 4, .key = IN_B2},
+    {.label = "Quit", .id = APP_QUIT, .pad = -1, .key = -1},
 };
 struct ui_menu menu = {.title = "Menu", .items = items, .n = 2};
-menu.hold = (1u << IN_SHIFT) | (1u << IN_ERASE); /* both keys, not only Shift */
+menu.hold = (1u << IN_SHIFT) | (1u << IN_ERASE); /* this app chooses the buttons */
 
 struct ui_menu_style st = ui_menu_style_default();
 if (!ui_menu_open(&menu, in)) {
     /* wheel and pads belong to the screen under the menu */
 }
 int id = ui_menu(ui, 48, 44, 224, 152, &menu, st, in);
-if (id == UI_MENU_QUIT) return 1;
+if (id == APP_SAVE) { /* the app saves */ }
+if (id == APP_QUIT) ui_quit(ui);
 ```
 
-While the menu is open its pads light. Releasing the combination turns those pads off. `input.held` is the buttons that are still down, so a combination can span more than one frame.
+`ui_quit` asks `app_run` to exit after this frame. The app calls it when its own UI decides to leave. Nothing in the toolkit binds that call to a button or a chord. A frame that returns non-zero also exits.
+
+While the menu is open its pads light. Releasing the combination turns those pads off. `input.held` is the buttons that are still down, so a combination can span more than one frame. Row ids belong to the app. `-1` means nothing was chosen.
 
 ## Examples
 
@@ -78,11 +83,11 @@ Each file is one screen and one idea. `make` builds thirteen static binaries in 
 
 `text-edit` demonstrates interactive single-line text input for renaming items using pad multi-tap, cursor wheel navigation, Shift selection, and soft keys B1-B3.
 
-`sudoku` is a game on `ui_grid` and `ui_pad_modes`. The top-left 3×3 of pads is the cluster. Hold pad 16 and tap it to pick a block, pad 12 to pick a cell inside that block, and pad 8 to enter 1–9. Hold pad 1 and tap the cluster to mark a possible number. Those marks sit under the pad legend. Pad 3 clears the marks on the selected cell, and pad 4 clears the digit. The middle top button undoes. Hold the restart pad, or hold the top-right New button, then press the middle button to confirm. A matching pair of entered digits turns red. A clue does not. Hold Shift and Quit, as in the other examples.
+`sudoku` is a game on `ui_grid` and `ui_pad_modes`. The top-left 3×3 of pads is the cluster. Hold pad 16 and tap it to pick a block, pad 12 to pick a cell inside that block, and pad 8 to enter 1–9. Hold pad 1 and tap the cluster to mark a possible number. Those marks sit under the pad legend. Pad 3 clears the marks on the selected cell, and pad 4 clears the digit. The middle top button undoes. Hold the restart pad, or hold the top-right New button, then press the middle button to confirm. A matching pair of entered digits turns red. A clue does not. Leaving uses the same menu as the other examples.
 
 `anim` slides a block along a track and asks for another frame in 16 ms. The panel is an SPI ST7796S. One update carries every changed row. A full 320×240 frame is about 50 ms on the wire, so a full-screen wipe stays near 20 frames per second. The block is small, and only the rows it leaves and enters are sent.
 
-Every example uses the same menu: hold Shift and Quit appears on pad 1. The wheel moves the row, encoder press or that pad chooses it, and letting go of Shift hides the menu. Choosing Quit leaves the program. The process drops the screen and turns the pad lights off so the boot menu can draw again. Edit `examples/menu.h`, or give `ui_menu` a different `hold` mask and item list.
+Each example leaves from a menu it owns. `examples/menu.h` is that menu. Most of them show it while Shift is held. The filebrowser example shows it while Stop is held, because that screen already uses Shift. Resume is the first row. Choosing Quit calls `ui_quit`. The process then drops the screen and turns the pad lights off so the boot menu can draw again. Change the hold mask or the rows in that file, or build another `struct ui_menu` and call `ui_quit` for the row that should leave.
 
 ```sh
 make test      # build/ui-test, host pixel checks

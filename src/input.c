@@ -24,8 +24,6 @@ int input_down(const struct input *f, int button) {
     return (f->down >> button) & 1;
 }
 
-int input_quit(const struct input *f) { return f->shift && f->encoder_press; }
-
 void input_begin(struct input *f, const struct input_dev *d) {
     memset(f, 0, sizeof *f);
     for (int i = 0; i < 16; i++) f->pad_hit[i] = f->pad_pressure[i] = -1;

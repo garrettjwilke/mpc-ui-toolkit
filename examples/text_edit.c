@@ -67,7 +67,7 @@ int text_edit_frame(struct ui *u, const struct input *in, void *state) {
     ui_text(u, 70, 130, s->last_action ? s->last_action : "Ready", UI_TEXT, 1);
 
     ui_text(u, 16, 160, "Press B1 or Click Encoder to edit.", 0xa0a8b8, 1);
-    ui_text(u, 16, 180, "Hold Shift for Quit menu.", 0x707888, 1);
+    ui_text(u, 16, 180, "Hold Shift to open the menu.", 0x707888, 1);
 
     if (example_menu_draw(u, in)) return 1;
     return 0;

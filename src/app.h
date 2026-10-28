@@ -4,5 +4,6 @@
 
 typedef int (*ui_frame)(struct ui *u, const struct input *in, void *state);
 
-// Returns 0 when the frame asks to quit. Does not stop or start the stock app.
+// Returns 0 after the app leaves. A frame leaves by calling ui_quit, or by returning non-zero.
+// Does not stop or start the stock app.
 int app_run(ui_frame frame, void *state);

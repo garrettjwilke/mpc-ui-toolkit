@@ -3,6 +3,7 @@
 #include "input.h"
 #include "widgets.h"
 #include "filebrowser.h"
+#include "menu.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -15,12 +16,13 @@ struct filebrowser_demo_state {
 int filebrowser_frame(struct ui *u, const struct input *in, void *state) {
     struct filebrowser_demo_state *s = state;
 
-    if (in && input_quit(in)) {
-        return 1; // Quit app
-    }
+    // Shift is the browser's modifier, so this app shows its menu while Stop is held.
+    if (!example_menu.items) example_menu.hold = 1u << IN_STOP;
+    example_menu_prepare();
+    int open = in && ui_menu_open(&example_menu, in);
 
     struct ui_filebrowser_style st = ui_filebrowser_style_default();
-    int res = ui_filebrowser(u, 0, 0, UI_W, UI_H, &s->fb, st, in);
+    int res = ui_filebrowser(u, 0, 0, UI_W, UI_H, &s->fb, st, open ? 0 : in);
 
     if (res == UI_FB_SELECT) {
         snprintf(s->last_selected, sizeof s->last_selected, "%s", s->fb.selected_name);
@@ -28,9 +30,10 @@ int filebrowser_frame(struct ui *u, const struct input *in, void *state) {
         s->fb.status_is_error = 0;
         s->show_banner = 1;
     } else if (res == UI_FB_CANCEL) {
-        return 1; // Exit when backing out of root
+        ui_quit(u);
     }
 
+    if (example_menu_draw(u, in)) return 1;
     return 0;
 }
 

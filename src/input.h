@@ -50,7 +50,6 @@ struct parser {
 void input_begin(struct input *f, const struct input_dev *d);
 void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]);
 int input_down(const struct input *f, int button);
-int input_quit(const struct input *f); // Shift held and encoder pressed
 
 // 1 when msg holds a channel message. SysEx and realtime bytes are skipped.
 int parser_feed(struct parser *p, unsigned char c);

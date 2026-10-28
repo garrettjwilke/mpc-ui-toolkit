@@ -36,7 +36,7 @@ static void present(struct screen *scr, const uint32_t *front, int rects[][4], i
 static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struct surface *midi, ui_frame frame,
                       const struct input *in, void *state, int *wake_ms) {
     struct ui u = {.px = back};
-    int quit = frame(&u, in, state);
+    int quit = frame(&u, in, state) || u.quit;
     int rects[UI_H][4];
     int n = ui_changes(back, front, rects);
     for (int i = 0; i < u.nled; i++)

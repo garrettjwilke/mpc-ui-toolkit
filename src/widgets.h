@@ -126,9 +126,6 @@ struct ui_pad_hit ui_pad_modes(struct ui *u, int x, int y, int w, int h, const i
                                const struct ui_pad_mode *modes, int nmodes, const struct ui_pad_tap *taps,
                                int ntaps, struct ui_pad_mode_style st, const struct input *in);
 
-// Suggested id for a Quit row. ui_menu returns the item's own id, so any value other than -1 works.
-enum { UI_MENU_QUIT = 1 };
-
 struct ui_menu_item {
     const char *label;
     int id;  // returned when this row is chosen. -1 is "nothing chosen".

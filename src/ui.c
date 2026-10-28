@@ -181,6 +181,10 @@ void ui_wake(struct ui *u, int ms) {
     if (u->wake_ms < 1 || ms < u->wake_ms) u->wake_ms = ms;
 }
 
+void ui_quit(struct ui *u) {
+    if (u) u->quit = 1;
+}
+
 static int64_t ui_now(struct ui *u) {
     if (u && u->now_ms) return u->now_ms;
     struct timespec t;

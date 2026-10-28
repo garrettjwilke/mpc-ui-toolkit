@@ -46,6 +46,7 @@ struct ui {
     unsigned char button_level[32]; // 0 off, 1 dim, 2 bright
     int64_t now_ms; // 0 reads the clock. A test can set a fake time.
     int wake_ms;    // widgets ask for another frame this soon. 0 means no request.
+    int quit;       // 1 after ui_quit. The frame loop exits after this frame.
 };
 
 enum {
@@ -55,6 +56,9 @@ enum {
 
 // Asks the frame loop for another frame within ms. The soonest request wins.
 void ui_wake(struct ui *u, int ms);
+
+// Asks the frame loop to exit after this frame. The app decides when to call it.
+void ui_quit(struct ui *u);
 
 // 1 when a control should draw pressed.
 // held is the physical state, edge is the press this frame.

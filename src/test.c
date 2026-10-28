@@ -66,7 +66,7 @@ static void test_parser(void) {
     unsigned char push[3] = {0x90, 111, 127};
     input_push(&dev, &in, sh);
     input_push(&dev, &in, push);
-    expect(input_quit(&in), "quit chord");
+    expect(in.encoder_press, "encoder press");
     expect(in.shift && (in.held & (1u << IN_SHIFT)), "shift held in the frame");
 
     struct input next;
@@ -101,14 +101,33 @@ static void test_clear(void) {
         for (int x = 24; x < 24 + 6 * 5; x++)
             if (px(&u, x, y) == UI_TEXT) text = 1;
     expect(text, "clear text");
+    expect(!u.quit, "quit flag starts clear");
+    ui_quit(0);
+    expect(!u.quit, "null ui_quit is ignored");
+    ui_quit(&u);
+    expect(u.quit, "ui_quit requests exit");
+    u.quit = 0;
     in.encoder_press = 1;
     expect(clear_frame(&u, &in, 0) == 0, "encoder alone does not quit");
+    expect(!u.quit, "encoder does not request quit");
     in.shift = 1;
-    expect(clear_frame(&u, &in, 0) == 1, "shift menu quits");
+    expect(clear_frame(&u, &in, 0) == 0, "shift and encoder do not quit");
+    expect(!u.quit, "no quit until the app asks");
+    in.encoder_press = 0;
+    in.encoder = 1;
+    expect(clear_frame(&u, &in, 0) == 0, "moving the menu does not quit");
+    in.encoder = 0;
+    in.encoder_press = 1;
+    expect(clear_frame(&u, &in, 0) == 1, "quit row calls ui_quit");
+    expect(u.quit, "ui_quit flag is set");
     struct input pad = blank();
     pad.shift = 1;
     pad.pad_hit[0] = 80;
-    expect(clear_frame(&u, &pad, 0) == 1, "pad 1 quits");
+    u.quit = 0;
+    expect(clear_frame(&u, &pad, 0) == 0, "first menu row does not quit");
+    pad.pad_hit[0] = -1;
+    pad.pad_hit[1] = 80;
+    expect(clear_frame(&u, &pad, 0) == 1, "quit row pad calls ui_quit");
 }
 
 static void test_boxes(void) {
@@ -587,7 +606,14 @@ static void test_sudoku(void) {
     in = blank();
     in.shift = 1;
     in.encoder_press = 1;
-    expect(sudoku_frame(&u, &in, &s) == 1, "shift menu quits");
+    expect(sudoku_frame(&u, &in, &s) == 0, "shift and encoder do not quit");
+    expect(!u.quit, "sudoku does not quit on that chord");
+    in.encoder_press = 0;
+    in.encoder = 1;
+    expect(sudoku_frame(&u, &in, &s) == 0, "moving the sudoku menu does not quit");
+    in.encoder = 0;
+    in.encoder_press = 1;
+    expect(sudoku_frame(&u, &in, &s) == 1, "sudoku menu quit calls ui_quit");
 }
 
 static void test_anim(void) {
@@ -616,11 +642,18 @@ static void test_anim(void) {
     in.encoder_press = 1;
     expect(anim_frame(&u, &in, &s) == 0, "encoder alone does not quit");
     in.shift = 1;
-    expect(anim_frame(&u, &in, &s) == 1, "shift menu quits");
+    expect(anim_frame(&u, &in, &s) == 0, "shift and encoder do not quit");
+    in.encoder_press = 0;
+    in.encoder = 1;
+    expect(anim_frame(&u, &in, &s) == 0, "moving the anim menu does not quit");
+    in.encoder = 0;
+    in.encoder_press = 1;
+    expect(anim_frame(&u, &in, &s) == 1, "anim menu quit calls ui_quit");
     struct input pad = blank();
     pad.shift = 1;
-    pad.pad_hit[0] = 80;
-    expect(anim_frame(&u, &pad, &s) == 1, "pad 1 quits");
+    pad.pad_hit[1] = 80;
+    u.quit = 0;
+    expect(anim_frame(&u, &pad, &s) == 1, "quit row pad calls ui_quit");
 }
 
 static void test_text_editor(void) {
@@ -802,7 +835,7 @@ static void test_text_editor(void) {
     expect(tes.editing == 0, "editing stopped after confirm");
     expect(strcmp(tes.last_action, "Saved") == 0, "last action saved");
 
-    // 12. Shift while editing does not open quit menu
+    // 12. Shift while editing does not leave
     struct text_edit_state tes2 = {.editing = 1};
     strncpy(tes2.name, "Kick", sizeof tes2.name - 1);
     ui_text_editor_init(&tes2.editor, tes2.name, sizeof tes2.name, "RENAME");
@@ -870,11 +903,16 @@ static void test_diagnostics(void) {
     expect(s.test_meter_val == 127, "fader sets meter val");
     expect(u.meter_left == 31 && u.meter_right == 31, "meter full scale");
 
-    // 7. Shift menu quits
     in = blank();
     in.shift = 1;
     in.encoder_press = 1;
-    expect(diagnostics_frame(&u, &in, &s) == 1, "shift menu quits diagnostics");
+    expect(diagnostics_frame(&u, &in, &s) == 0, "shift and encoder do not quit diagnostics");
+    in.encoder_press = 0;
+    in.encoder = 1;
+    expect(diagnostics_frame(&u, &in, &s) == 0, "moving the diagnostics menu does not quit");
+    in.encoder = 0;
+    in.encoder_press = 1;
+    expect(diagnostics_frame(&u, &in, &s) == 1, "diagnostics menu quit calls ui_quit");
 }
 
 static void test_filebrowser(void) {

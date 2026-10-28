@@ -241,7 +241,6 @@ int diagnostics_frame(struct ui *u, const struct input *in, void *state) {
     int meter_mask = (s->test_meter_val * 31) / 127;
     ui_meter(u, meter_mask, meter_mask);
 
-    // Shift Menu
     if (example_menu_draw(u, in)) return 1;
 
     return 0;

@@ -1,4 +1,4 @@
-// Fills the panel with one color. Hold Shift, then choose Quit.
+// Fills the panel with one color. The menu in menu.h leaves by calling ui_quit.
 #include "ui.h"
 #include "input.h"
 #include "menu.h"
