@@ -3,6 +3,7 @@
 #include "ui.h"
 #include "widgets.h"
 #include "../examples/sudoku.h"
+#include "../examples/diagnostics.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -86,6 +87,23 @@ int main(void) {
     text_edit.editor.last_pad = 11;
     text_edit.editor.pad_cycle = 1;
     rc |= shot("text-edit", text_edit_frame, &text_edit);
+    struct diagnostics_state diagnostics = {
+        .encoder_accum = 12,
+        .encoder_last_delta = 2,
+        .selected_track = 2,
+        .test_meter_val = 96,
+        .event_log = {
+            "PAD 1 HIT: vel=118 (Note 37)",
+            "BTN MUTE DOWN (Note 43)",
+            "ENCODER: delta=+2 (tot=12)",
+            "MAIN VOLUME (CC 19): 100"
+        },
+        .event_log_count = 4,
+        .total_events = 42
+    };
+    diagnostics.pad_vel[0] = 118;
+    diagnostics.pad_at[0] = 72;
+    rc |= shot("diagnostics", diagnostics_frame, &diagnostics);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};

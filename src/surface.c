@@ -12,6 +12,10 @@ static void send_bytes(int fd, const unsigned char *b, size_t n) {
         ssize_t w = write(fd, b + off, n - off);
         if (w < 0) {
             if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(200);
+                continue;
+            }
             perror("write");
             return;
         }
@@ -44,6 +48,8 @@ int surface_open(struct surface *s) {
     s->last_right_meter = 0;
     s->last_track_mask = 0;
     memset(s->last_button, 0, sizeof s->last_button);
+    memset(s->last_pad, 0, sizeof s->last_pad);
+    s->pad_valid = 0;
     int card = card_number();
     if (card < 0) {
         fputs("control surface not found\n", stderr);
@@ -61,9 +67,23 @@ int surface_open(struct surface *s) {
 }
 
 void surface_pad(struct surface *s, int pad, int r, int g, int b) {
+    if (!s || s->fd < 0 || pad < 0 || pad >= 16) return;
+    unsigned char ur = (unsigned char)(r & 0x7f);
+    unsigned char ug = (unsigned char)(g & 0x7f);
+    unsigned char ub = (unsigned char)(b & 0x7f);
+    if (s->pad_valid && s->last_pad[pad][0] == ur &&
+        s->last_pad[pad][1] == ug &&
+        s->last_pad[pad][2] == ub) {
+        return;
+    }
+    s->last_pad[pad][0] = ur;
+    s->last_pad[pad][1] = ug;
+    s->last_pad[pad][2] = ub;
+    s->pad_valid = 1;
+
     unsigned char m[12] = {0xF0, 0x47, 0x7F, 0x5C, 0x65, 0x00, 0x04, (unsigned char)(pad & 0x7f),
-                           (unsigned char)(r & 0x7f), (unsigned char)(g & 0x7f), (unsigned char)(b & 0x7f), 0xF7};
-    if (s->fd >= 0) send_bytes(s->fd, m, sizeof m);
+                           ur, ug, ub, 0xF7};
+    send_bytes(s->fd, m, sizeof m);
 }
 
 void surface_meter(struct surface *s, int left_mask, int right_mask) {
@@ -152,6 +172,7 @@ void surface_all_off(struct surface *s) {
     if (s->fd < 0) return;
     for (int i = 0; i < IN_N; i++) led(s, INPUT_BUTTON_NOTE[i], 0);
     memset(s->last_button, 0, sizeof s->last_button);
+    s->pad_valid = 0;
     for (int i = 0; i < 16; i++) surface_pad(s, i, 0, 0, 0);
     surface_meter(s, 0, 0);
     surface_track_led(s, -1);

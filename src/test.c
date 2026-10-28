@@ -3,6 +3,7 @@
 #include "ui.h"
 #include "widgets.h"
 #include "../examples/sudoku.h"
+#include "../examples/diagnostics.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -810,6 +811,71 @@ static void test_text_editor(void) {
     expect(tes2.editing == 1, "still editing when shift is pressed");
 }
 
+static void test_diagnostics(void) {
+    static uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    struct diagnostics_state s = {0};
+    struct input in = blank();
+
+    // 1. Initial frame runs
+    expect(diagnostics_frame(&u, &in, &s) == 0, "diagnostics runs");
+    expect(s.total_events == 0, "initial event count 0");
+    expect(u.track_led == 0, "initial track LED is A (0)");
+
+    // 2. Encoder turning
+    in.encoder = 3;
+    diagnostics_frame(&u, &in, &s);
+    expect(s.encoder_accum == 3, "encoder accum +3");
+    expect(s.encoder_last_delta == 3, "encoder last delta +3");
+    expect(s.total_events == 1, "encoder event logged");
+    expect(strstr(s.event_log[0], "ENCODER: delta=+3") != NULL, "encoder log text");
+
+    // 3. Button press (MUTE)
+    in = blank();
+    in.down = (1u << IN_MUTE);
+    in.held = (1u << IN_MUTE);
+    diagnostics_frame(&u, &in, &s);
+    expect(s.total_events == 2, "button down event logged");
+    expect(strstr(s.event_log[0], "BTN MUTE DOWN") != NULL, "mute button log text");
+    expect((u.button_mask & (1u << IN_MUTE)) != 0, "mute led updated");
+    expect(u.button_level[IN_MUTE] == 2, "mute led bright while held");
+
+    // 4. Pad hit
+    in = blank();
+    in.pad_hit[3] = 110;
+    in.pad_down[3] = 1;
+    diagnostics_frame(&u, &in, &s);
+    expect(s.pad_vel[3] == 110, "pad 4 velocity stored");
+    expect(s.total_events == 3, "pad hit event logged");
+    expect(strstr(s.event_log[0], "PAD 4 HIT: vel=110") != NULL, "pad hit log text");
+    int pad_led_ok = 0;
+    for (int i = 0; i < u.nled; i++) {
+        if (u.led[i].index == 3 && u.led[i].r == 127) pad_led_ok = 1;
+    }
+    expect(pad_led_ok, "pad 4 rgb led lit");
+
+    // 5. Track stepping
+    in = blank();
+    in.down = (1u << IN_PLUS);
+    diagnostics_frame(&u, &in, &s);
+    expect(s.selected_track == 1, "track advanced to 1 (B)");
+    expect(u.track_led == 1, "track B led lit");
+
+    // 6. Fader movement / Meter drive
+    in = blank();
+    in.fader_moved = 1;
+    in.fader = 127;
+    diagnostics_frame(&u, &in, &s);
+    expect(s.test_meter_val == 127, "fader sets meter val");
+    expect(u.meter_left == 31 && u.meter_right == 31, "meter full scale");
+
+    // 7. Shift menu quits
+    in = blank();
+    in.shift = 1;
+    in.encoder_press = 1;
+    expect(diagnostics_frame(&u, &in, &s) == 1, "shift menu quits diagnostics");
+}
+
 int main(void) {
     test_parser();
     test_changes();
@@ -827,6 +893,7 @@ int main(void) {
     test_sudoku();
     test_anim();
     test_text_editor();
+    test_diagnostics();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
         return 1;
@@ -834,3 +901,4 @@ int main(void) {
     puts("ok");
     return 0;
 }
+

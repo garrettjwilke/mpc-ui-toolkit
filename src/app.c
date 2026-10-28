@@ -49,6 +49,8 @@ static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struc
     return quit;
 }
 
+void diag_log_raw_midi(const unsigned char m[3]) __attribute__((weak));
+
 static int read_frame(struct surface *midi, struct parser *p, struct input_dev *dev, struct input *in) {
     input_begin(in, dev);
     unsigned char buf[256];
@@ -59,7 +61,10 @@ static int read_frame(struct surface *midi, struct parser *p, struct input_dev *
         if (n == 0) return any;
         any = 1;
         for (ssize_t i = 0; i < n; i++)
-            if (parser_feed(p, buf[i])) input_push(dev, in, p->msg);
+            if (parser_feed(p, buf[i])) {
+                if (diag_log_raw_midi) diag_log_raw_midi(p->msg);
+                input_push(dev, in, p->msg);
+            }
     }
 }
 

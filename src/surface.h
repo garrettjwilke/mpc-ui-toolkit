@@ -7,6 +7,8 @@ struct surface {
     int last_right_meter;
     int last_track_mask;
     unsigned char last_button[32];
+    unsigned char last_pad[16][3];
+    int pad_valid;
 };
 
 int surface_open(struct surface *s); // 0 on success

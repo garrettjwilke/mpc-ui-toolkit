@@ -69,7 +69,9 @@ While the menu is open its pads light. Releasing the combination turns those pad
 
 ## Examples
 
-Each file is one screen and one idea. `make` builds eleven static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`, `sudoku`, `text-edit`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+Each file is one screen and one idea. `make` builds twelve static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`, `sudoku`, `text-edit`, `diagnostics`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+
+`diagnostics` provides a comprehensive hardware and input testing suite. It visualizes and tests all 24 front-panel buttons (illuminating corresponding hardware LEDs on press), all 16 RGB velocity and aftertouch pads (with real-time RGB pressure feedback), K1–K3 knobs, fader, main volume knob, rotary encoder wheel rotation and click, track select LEDs A–H (cycled with Minus/Plus buttons), hardware VU level meters (driven by fader position), and displays a live 4-line event monitor showing raw MIDI note numbers and values.
 
 `text-edit` demonstrates interactive single-line text input for renaming items using pad multi-tap, cursor wheel navigation, Shift selection, and soft keys B1-B3.
 
