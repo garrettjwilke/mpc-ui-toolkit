@@ -219,3 +219,5 @@ void ui_text_editor_clear(struct ui_text_editor *ed);
 // Returns UI_TEXT_ACTIVE, UI_TEXT_OK, or UI_TEXT_CANCEL.
 int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_editor *ed,
                    struct ui_text_editor_style st, const struct input *in);
+
+#include "filebrowser.h"

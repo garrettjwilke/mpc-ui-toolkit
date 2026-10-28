@@ -5,6 +5,7 @@
 #include "../examples/sudoku.h"
 #include "../examples/diagnostics.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int clear_frame(struct ui *u, const struct input *in, void *state);
@@ -876,6 +877,203 @@ static void test_diagnostics(void) {
     expect(diagnostics_frame(&u, &in, &s) == 1, "shift menu quits diagnostics");
 }
 
+static void test_filebrowser(void) {
+    // 1. Setup temporary sandbox directory with mock SD card and internal storage
+    int ret = system("rm -rf build/test_fb && mkdir -p build/test_fb/media/MPC/drums build/test_fb/media/MPC/subfolder build/test_fb/media/MPC/.hidden_dir build/test_fb/data");
+    expect(ret == 0, "create test_fb sandbox");
+
+    FILE *f;
+    f = fopen("build/test_fb/media/MPC/zebra.wav", "w"); if (f) { fputs("zebra", f); fclose(f); }
+    f = fopen("build/test_fb/media/MPC/alpha.wav", "w"); if (f) { fputs("alpha data", f); fclose(f); }
+    f = fopen("build/test_fb/media/MPC/beta.mpcmd", "w"); if (f) { fputs("project", f); fclose(f); }
+    f = fopen("build/test_fb/media/MPC/notes.txt", "w"); if (f) { fputs("text file", f); fclose(f); }
+    f = fopen("build/test_fb/media/MPC/.hidden.txt", "w"); if (f) { fputs("hidden", f); fclose(f); }
+
+    // 2. Test top-level Storage Locations view (Internal & External SD Card only)
+    struct ui_filebrowser fb;
+    struct ui_filebrowser_config cfg = {
+        .initial_path = NULL, // Start at Storage Locations
+        .external_path = "build/test_fb/media/MPC",
+        .internal_path = "build/test_fb/data",
+        .title = "TEST BROWSER",
+        .action_label = "LOAD",
+        .options = UI_FB_PRESET_FULL,
+    };
+    ui_filebrowser_init(&fb, &cfg);
+
+    expect(fb.cwd[0] == '\0', "starts at Storage Locations view");
+    expect(fb.drive_count == 2, "2 storage locations detected");
+    expect(fb.count == 2, "storage view lists 2 drives");
+    expect(fb.entries[0].is_drive == 1, "entry 0 is drive");
+    expect(fb.entries[1].is_drive == 1, "entry 1 is drive");
+
+    // 3. Test Security Sandbox: root (/) and system directories are strictly forbidden
+    expect(ui_filebrowser_is_allowed(&fb, "/") == 0, "root / is forbidden");
+    expect(ui_filebrowser_is_allowed(&fb, "/bin") == 0, "/bin is forbidden");
+    expect(ui_filebrowser_is_allowed(&fb, "/etc") == 0, "/etc is forbidden");
+    expect(ui_filebrowser_is_allowed(&fb, "/proc") == 0, "/proc is forbidden");
+    expect(ui_filebrowser_set_cwd(&fb, "/etc") == -1, "set_cwd to /etc rejected");
+    expect(ui_filebrowser_is_allowed(&fb, "build/test_fb/media/MPC/drums") == 1, "subfolder in SD is allowed");
+    expect(ui_filebrowser_is_allowed(&fb, "build/test_fb/data") == 1, "data folder is allowed");
+
+    // 4. Enter SD Card and verify file listing & sorting & dotfiles
+    ui_filebrowser_set_cwd(&fb, "build/test_fb/media/MPC");
+    expect(strcmp(fb.cwd, "build/test_fb/media/MPC") == 0, "entered SD card");
+
+    // ".." is present at drive root to return to Storage Locations
+    expect(fb.entries[0].is_parent == 1, "entry 0 is .. (parent)");
+
+    // Directories first, then files sorted alphabetically
+    // Entries: .. [0], drums [1], subfolder [2], alpha.wav [3], beta.mpcmd [4], notes.txt [5], zebra.wav [6]
+    expect(fb.entries[1].is_dir == 1 && strcmp(fb.entries[1].name, "drums") == 0, "first dir is drums");
+    expect(fb.entries[2].is_dir == 1 && strcmp(fb.entries[2].name, "subfolder") == 0, "second dir is subfolder");
+    expect(fb.entries[3].is_dir == 0 && strcmp(fb.entries[3].name, "alpha.wav") == 0, "file alpha.wav");
+    expect(fb.entries[4].is_dir == 0 && strcmp(fb.entries[4].name, "beta.mpcmd") == 0, "file beta.mpcmd");
+    expect(fb.entries[5].is_dir == 0 && strcmp(fb.entries[5].name, "notes.txt") == 0, "file notes.txt");
+    expect(fb.entries[6].is_dir == 0 && strcmp(fb.entries[6].name, "zebra.wav") == 0, "file zebra.wav");
+    expect(fb.count == 7, "count without dotfiles is 7 (including ..)");
+
+    // 5. Toggle dotfiles
+    fb.hide_dotfiles = 0;
+    ui_filebrowser_refresh(&fb);
+    int found_hidden_file = 0, found_hidden_dir = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, ".hidden.txt") == 0) found_hidden_file = 1;
+        if (strcmp(fb.entries[i].name, ".hidden_dir") == 0) found_hidden_dir = 1;
+    }
+    expect(found_hidden_file, "found hidden file after toggle");
+    expect(found_hidden_dir, "found hidden dir after toggle");
+
+    // 6. Test extension filtering
+    const char *exts[] = {".wav", ".mpcmd", NULL};
+    fb.extensions = exts;
+    fb.hide_dotfiles = 1;
+    ui_filebrowser_refresh(&fb);
+    int found_notes = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "notes.txt") == 0) found_notes = 1;
+    }
+    expect(!found_notes, "notes.txt filtered out by extension");
+    fb.extensions = NULL; // reset
+
+    // 7. Test Copy & Paste
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "alpha.wav") == 0) {
+            fb.cursor = i;
+            break;
+        }
+    }
+    expect(ui_filebrowser_copy(&fb) == 0, "copy file");
+    expect(fb.clip_op == UI_FB_CLIP_COPY, "clipboard op is copy");
+    expect(strcmp(fb.clip_name, "alpha.wav") == 0, "clipboard name");
+
+    // Paste in same directory -> creates alpha_copy.wav
+    expect(ui_filebrowser_paste(&fb) == 0, "paste copy");
+    int found_copy = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "alpha_copy.wav") == 0) {
+            found_copy = 1;
+            fb.cursor = i;
+            break;
+        }
+    }
+    expect(found_copy, "alpha_copy.wav created by paste");
+
+    // 8. Test Cut (Move) & Paste
+    expect(ui_filebrowser_cut(&fb) == 0, "cut file");
+    expect(fb.clip_op == UI_FB_CLIP_CUT, "clipboard op is cut");
+
+    // Navigate into drums/
+    ui_filebrowser_set_cwd(&fb, "build/test_fb/media/MPC/drums");
+    expect(ui_filebrowser_paste(&fb) == 0, "paste move into drums/");
+    expect(fb.clip_op == UI_FB_CLIP_NONE, "cut cleared after paste");
+
+    // Verify alpha_copy.wav is now in drums/
+    int in_drums = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "alpha_copy.wav") == 0) {
+            in_drums = 1;
+            fb.cursor = i;
+            break;
+        }
+    }
+    expect(in_drums, "alpha_copy.wav moved into drums/");
+
+    // Verify alpha_copy.wav is unlinked from parent
+    ui_filebrowser_set_cwd(&fb, "build/test_fb/media/MPC");
+    int in_parent = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "alpha_copy.wav") == 0) in_parent = 1;
+    }
+    expect(!in_parent, "alpha_copy.wav unlinked from source directory");
+
+    // 9. Test Delete
+    ui_filebrowser_set_cwd(&fb, "build/test_fb/media/MPC/drums");
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "alpha_copy.wav") == 0) {
+            fb.cursor = i;
+            break;
+        }
+    }
+    expect(ui_filebrowser_delete(&fb) == 0, "delete file");
+    in_drums = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "alpha_copy.wav") == 0) in_drums = 1;
+    }
+    expect(!in_drums, "file deleted from drums/");
+
+    // 10. Test Mkdir
+    char new_dir[256];
+    snprintf(new_dir, sizeof new_dir, "build/test_fb/media/MPC/created_folder");
+    expect(ui_filebrowser_make_dir(new_dir) == 0, "mkdir created_folder");
+    ui_filebrowser_set_cwd(&fb, "build/test_fb/media/MPC");
+    int found_new_dir = 0;
+    for (int i = 0; i < fb.count; i++) {
+        if (strcmp(fb.entries[i].name, "created_folder") == 0 && fb.entries[i].is_dir) found_new_dir = 1;
+    }
+    expect(found_new_dir, "new directory recognized in file listing");
+
+    // 11. Test Navigation Back to Storage Locations View
+    // At root of SD Card, pressing B1 (UP) or clicking .. must return to Storage Locations
+    struct input in = blank();
+    in.down = (1u << IN_B1); // Press UP (B1)
+    uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    struct ui_filebrowser_style st = ui_filebrowser_style_default();
+    ui_filebrowser(&u, 0, 0, UI_W, UI_H, &fb, st, &in);
+    expect(fb.cwd[0] == '\0', "navigating UP from drive root returns to Storage Locations");
+    expect(fb.count == 2, "shows 2 storage locations");
+
+    // 12. Test Entering Internal Storage (/data) from Storage Locations
+    fb.cursor = 1; // Internal (/data)
+    in = blank();
+    in.encoder_press = 1;
+    ui_filebrowser(&u, 0, 0, UI_W, UI_H, &fb, st, &in);
+    expect(strcmp(fb.cwd, "build/test_fb/data") == 0, "entered internal storage (/data)");
+
+    // 13. Test B1 at Storage Locations view returns UI_FB_CANCEL
+    fb.cwd[0] = '\0';
+    ui_filebrowser_refresh(&fb);
+    in = blank();
+    in.down = (1u << IN_B1);
+    int res = ui_filebrowser(&u, 0, 0, UI_W, UI_H, &fb, st, &in);
+    expect(res == UI_FB_CANCEL, "B1 at Storage Locations returns CANCEL");
+
+    // 14. Test Forced Root Lock
+    struct ui_filebrowser forced_fb;
+    struct ui_filebrowser_config forced_cfg = {
+        .forced_root = "build/test_fb/media/MPC/drums",
+    };
+    ui_filebrowser_init(&forced_fb, &forced_cfg);
+    expect(strcmp(forced_fb.cwd, "build/test_fb/media/MPC/drums") == 0, "forced root set as cwd");
+    expect(forced_fb.entries[0].is_parent == 0, "no .. allowed at forced root");
+    expect(ui_filebrowser_is_allowed(&forced_fb, "build/test_fb/media/MPC") == 0, "parent of forced root is forbidden");
+
+    // Cleanup temp dir
+    ret = system("rm -rf build/test_fb");
+    (void)ret;
+}
+
 int main(void) {
     test_parser();
     test_changes();
@@ -894,6 +1092,7 @@ int main(void) {
     test_anim();
     test_text_editor();
     test_diagnostics();
+    test_filebrowser();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
         return 1;

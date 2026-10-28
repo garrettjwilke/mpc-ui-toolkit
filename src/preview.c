@@ -25,6 +25,8 @@ struct anim_state { int x; int dir; };
 int anim_frame(struct ui *u, const struct input *in, void *state);
 struct text_edit_state { char name[32]; struct ui_text_editor editor; int editing; const char *last_action; };
 int text_edit_frame(struct ui *u, const struct input *in, void *state);
+struct filebrowser_demo_state { struct ui_filebrowser fb; char last_selected[UI_FB_MAX_PATH]; int show_banner; };
+int filebrowser_frame(struct ui *u, const struct input *in, void *state);
 
 static int write_ppm(const char *path, const uint32_t *px) {
     FILE *f = fopen(path, "wb");
@@ -104,6 +106,16 @@ int main(void) {
     diagnostics.pad_vel[0] = 118;
     diagnostics.pad_at[0] = 72;
     rc |= shot("diagnostics", diagnostics_frame, &diagnostics);
+
+    struct filebrowser_demo_state fb_demo = {0};
+    struct ui_filebrowser_config fb_cfg = {
+        .initial_path = NULL,
+        .title = "PROJECT & SAMPLE BROWSER",
+        .action_label = "SELECT",
+        .options = UI_FB_PRESET_FULL,
+    };
+    ui_filebrowser_init(&fb_demo.fb, &fb_cfg);
+    rc |= shot("filebrowser", filebrowser_frame, &fb_demo);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};
