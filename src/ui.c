@@ -129,6 +129,12 @@ void ui_led(struct ui *u, int index, int r, int g, int b) {
     u->nled++;
 }
 
+void ui_lift(struct ui *u, unsigned buttons, unsigned pads) {
+    if (!u) return;
+    u->lift_buttons |= buttons;
+    u->lift_pads |= pads;
+}
+
 void ui_button_led(struct ui *u, int button, int level) {
     if (!u || button < 0 || button >= 32) return;
     if (level < 0) level = 0;

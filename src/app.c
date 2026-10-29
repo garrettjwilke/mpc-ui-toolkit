@@ -167,10 +167,23 @@ static void panel_stop(void) {
     panel.started = 0;
 }
 
+static void lift_holds(struct input_dev *dev, unsigned buttons, unsigned pads) {
+    if (!dev) return;
+    dev->held &= ~buttons;
+    if (buttons & (1u << IN_SHIFT)) dev->shift = 0;
+    for (int p = 0; p < 16; p++) {
+        if ((pads & (1u << p)) == 0) continue;
+        dev->pad_down[p] = 0;
+        dev->pad_vel[p] = 0;
+        dev->pad_at[p] = 0;
+    }
+}
+
 static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struct surface *midi, ui_frame frame,
-                      const struct input *in, void *state, int *wake_ms) {
+                      struct input_dev *dev, const struct input *in, void *state, int *wake_ms) {
     struct ui u = {.px = back};
     int quit = frame(&u, in, state) || u.quit;
+    lift_holds(dev, u.lift_buttons, u.lift_pads);
     int rects[UI_H][4];
     // ui_changes writes `front`. The flush thread is the only one that copies
     // `front` into the dumb buffer, and it does that just before DIRTYFB.
@@ -240,7 +253,7 @@ int app_run(ui_frame frame, void *state) {
     panel_start(&scr, front);
     int wake = 0;
     int64_t started = mono_ms();
-    int quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
+    int quit = draw_frame(&scr, back, front, &midi, frame, &dev, &in, state, &wake);
 
     while (!quit) {
         struct pollfd pfd = {.fd = midi.fd, .events = POLLIN};
@@ -253,14 +266,14 @@ int app_run(ui_frame frame, void *state) {
             if (wake <= 0) continue;
             input_begin(&in, &dev);
             started = mono_ms();
-            quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
+            quit = draw_frame(&scr, back, front, &midi, frame, &dev, &in, state, &wake);
             continue;
         }
         int got = read_frame(&midi, &parser, &dev, &in);
         if (got < 0) break;
         if (!got) continue;
         started = mono_ms();
-        quit = draw_frame(&scr, back, front, &midi, frame, &in, state, &wake);
+        quit = draw_frame(&scr, back, front, &midi, frame, &dev, &in, state, &wake);
     }
 
     surface_all_off(&midi);

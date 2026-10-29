@@ -47,6 +47,8 @@ struct ui {
     int64_t now_ms; // 0 reads the clock. A test can set a fake time.
     int wake_ms;    // widgets ask for another frame this soon. 0 means no request.
     int quit;       // 1 after ui_quit. The frame loop exits after this frame.
+    unsigned lift_buttons; // IN_* bits to force up after this frame
+    unsigned lift_pads;    // one bit per pad, same
 };
 
 enum {
@@ -59,6 +61,11 @@ void ui_wake(struct ui *u, int ms);
 
 // Asks the frame loop to exit after this frame. The app decides when to call it.
 void ui_quit(struct ui *u);
+
+// Forget these holds after this frame. The next read treats them as up, so a
+// note-on that never got a note-off does not stay down. buttons is IN_* bits.
+// pads is one bit per pad.
+void ui_lift(struct ui *u, unsigned buttons, unsigned pads);
 
 // 1 when a control should draw pressed.
 // held is the physical state, edge is the press this frame.
