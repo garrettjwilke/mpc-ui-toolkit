@@ -26,10 +26,13 @@ static int poll_ms(int wake, int64_t started) {
 }
 
 // DIRTYFB holds the SPI bus for the whole clip. A full frame is about 50 ms,
-// long enough to stall the game. The flush thread owns that ioctl. `front`
-// keeps the newest pixels, and `pending` is every region that has not been
-// copied into the dumb buffer yet. When the bus is busy the game keeps
-// drawing; the next free send ships the union, so a skipped frame is not lost.
+// long enough to stall the game. The flush thread owns the dumb buffer and
+// that ioctl. Both have to stay on that thread: the cache clean inside the
+// ioctl only sees the caller's cache, so pixels written by the game thread
+// go out as zeros and the panel stays blank. `front` keeps the newest pixels.
+// `pending` is every region not copied yet. When the bus is busy the game
+// keeps drawing; the next free send ships the union, so a skipped frame is
+// not lost.
 #define FLUSH_MAX 128
 
 struct panel {
@@ -38,13 +41,10 @@ struct panel {
     pthread_t thread;
     int started;
     int stop;
-    int busy;
     struct screen *scr;
     const uint32_t *front;
     int pending[FLUSH_MAX][4];
     int pending_n;
-    int job[FLUSH_MAX][4];
-    int job_n;
 };
 
 static struct panel panel = {
@@ -118,44 +118,31 @@ static void pending_add(struct panel *p, int rects[][4], int n) {
     }
 }
 
-// Caller holds p->mu. The dumb buffer is only written while no DIRTYFB is in flight.
-static void arm_job(struct panel *p) {
-    if (p->busy || p->job_n > 0 || p->pending_n <= 0 || !p->scr || !p->front) return;
-    copy_rects(p->scr, p->front, p->pending, p->pending_n);
-    memcpy(p->job, p->pending, (size_t)p->pending_n * 4 * sizeof(int));
-    p->job_n = p->pending_n;
+// Caller holds p->mu. Copies `front` into the dumb buffer on this thread, which
+// is the flush thread, and returns the clips DIRTYFB should send.
+static int take_pending(struct panel *p, int rects[][4]) {
+    if (p->pending_n <= 0 || !p->scr || !p->front) return 0;
+    int n = p->pending_n;
+    memcpy(rects, p->pending, (size_t)n * 4 * sizeof(int));
+    copy_rects(p->scr, p->front, rects, n);
     p->pending_n = 0;
-    pthread_cond_signal(&p->cv);
+    return n;
 }
 
 static void *flush_thread(void *arg) {
     struct panel *p = arg;
     for (;;) {
         int rects[FLUSH_MAX][4];
-        int n = 0;
         pthread_mutex_lock(&p->mu);
-        while (!p->stop && p->job_n == 0)
+        while (!p->stop && p->pending_n == 0)
             pthread_cond_wait(&p->cv, &p->mu);
-        if (p->job_n > 0) {
-            n = p->job_n;
-            memcpy(rects, p->job, (size_t)n * 4 * sizeof(int));
-            p->job_n = 0;
-            p->busy = 1;
-        }
+        int n = take_pending(p, rects);
         struct screen *scr = p->scr;
-        int leave = p->stop && n == 0;
+        int leave = n == 0;
         pthread_mutex_unlock(&p->mu);
         if (leave) break;
-        if (n > 0 && scr)
+        if (scr)
             screen_flush(scr, rects, n);
-
-        pthread_mutex_lock(&p->mu);
-        p->busy = 0;
-        if (!p->stop)
-            arm_job(p);
-        int stop = p->stop;
-        pthread_mutex_unlock(&p->mu);
-        if (stop) break;
     }
     return NULL;
 }
@@ -165,9 +152,7 @@ static void panel_start(struct screen *scr, const uint32_t *front) {
     panel.scr = scr;
     panel.front = front;
     panel.stop = 0;
-    panel.busy = 0;
     panel.pending_n = 0;
-    panel.job_n = 0;
     pthread_mutex_unlock(&panel.mu);
     panel.started = pthread_create(&panel.thread, NULL, flush_thread, &panel) == 0;
 }
@@ -187,15 +172,16 @@ static int draw_frame(struct screen *scr, uint32_t *back, uint32_t *front, struc
     struct ui u = {.px = back};
     int quit = frame(&u, in, state) || u.quit;
     int rects[UI_H][4];
-    // ui_changes writes `front`. The flush thread copies `front` into the dumb
-    // buffer, so the two stay exclusive. The ioctl itself does not hold the lock.
+    // ui_changes writes `front`. The flush thread is the only one that copies
+    // `front` into the dumb buffer, and it does that just before DIRTYFB.
     if (panel.started)
         pthread_mutex_lock(&panel.mu);
     int n = ui_changes(back, front, rects);
     if (panel.started) {
         panel.front = front;
         pending_add(&panel, rects, n);
-        arm_job(&panel);
+        if (panel.pending_n > 0)
+            pthread_cond_signal(&panel.cv);
         pthread_mutex_unlock(&panel.mu);
     } else {
         copy_rects(scr, front, rects, n);

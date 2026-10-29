@@ -27,7 +27,8 @@ enum {
     UI_FB_OPT_DIRS_ONLY       = 1 << 8, // Show and allow selecting directories only
     UI_FB_OPT_SELECT_DIR      = 1 << 9, // Allow picking current directory as selection
     UI_FB_OPT_SHOW_SIZE       = 1 << 10,// Show file sizes in row
-    UI_FB_OPT_CONFIRM_DELETE  = 1 << 11 // Show confirmation dialog before delete
+    UI_FB_OPT_CONFIRM_DELETE  = 1 << 11, // Show confirmation dialog before delete
+    UI_FB_OPT_BACK            = 1 << 12  // B1 is always Back and leaves from any folder
 };
 
 // Convenience presets
@@ -43,7 +44,7 @@ enum {
 enum {
     UI_FB_ACTIVE =  0, // Browsing normally
     UI_FB_SELECT =  1, // User confirmed/selected a file or directory
-    UI_FB_CANCEL = -1  // User cancelled or exited (B1 at storage locations view)
+    UI_FB_CANCEL = -1  // User left (Back, or B1 at the storage list)
 };
 
 // Internal modal states

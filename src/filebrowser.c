@@ -668,8 +668,9 @@ static void draw_top_soft_keys(struct ui *u, int shift, const struct ui_filebrow
                                struct ui_filebrowser_style st) {
     int at_top_level = (fb->cwd[0] == '\0');
 
-    const char *b1_text = shift ? ((!at_top_level && (fb->options & UI_FB_OPT_MKDIR)) ? "NEW FOLDER" : "")
-                                : (at_top_level ? "EXIT" : "UP (..)");
+    const char *b1_text = (fb->options & UI_FB_OPT_BACK) ? "BACK"
+        : (shift ? ((!at_top_level && (fb->options & UI_FB_OPT_MKDIR)) ? "NEW FOLDER" : "")
+                 : (at_top_level ? "EXIT" : "UP (..)"));
     const char *b2_text = shift ? ((!at_top_level && (fb->options & UI_FB_OPT_PASTE) && fb->clip_op != UI_FB_CLIP_NONE) ? "PASTE" : (at_top_level ? "" : "ACTIONS"))
                                 : (at_top_level ? "" : (fb->clip_op != UI_FB_CLIP_NONE ? "ACTIONS (*)" : "ACTIONS"));
     const char *b3_text = shift ? ((!at_top_level && (fb->options & UI_FB_OPT_TOGGLE_DOTFILES)) ? (fb->hide_dotfiles ? "SHOW DOT" : "HIDE DOT") : "")
@@ -1001,8 +1002,11 @@ int ui_filebrowser(struct ui *u, int x, int y, int w, int h, struct ui_filebrows
         if (input_down(in, IN_MINUS) && fb->cursor > 0) fb->cursor--;
         if (input_down(in, IN_PLUS) && fb->cursor + 1 < fb->count) fb->cursor++;
 
-        // Soft Key B1: UP / EXIT
+        // Soft Key B1: BACK, or UP / EXIT
         if (input_down(in, IN_B1)) {
+            if (fb->options & UI_FB_OPT_BACK) {
+                return UI_FB_CANCEL;
+            }
             if (shift) {
                 if (fb->cwd[0] != '\0' && (fb->options & UI_FB_OPT_MKDIR)) {
                     snprintf(fb->edit_buf, sizeof fb->edit_buf, "New_Folder");
@@ -1041,6 +1045,14 @@ int ui_filebrowser(struct ui *u, int x, int y, int w, int h, struct ui_filebrows
                     ui_filebrowser_refresh(fb);
                 }
             } else {
+                if ((fb->options & UI_FB_OPT_SELECT_DIR) && fb->cwd[0] != '\0') {
+                    snprintf(fb->selected_path, sizeof fb->selected_path, "%s", fb->cwd);
+                    const char *slash = strrchr(fb->cwd, '/');
+                    const char *name = (slash && slash[1]) ? slash + 1 : fb->cwd;
+                    snprintf(fb->selected_name, sizeof fb->selected_name, "%s", name);
+                    fb->selected_is_dir = 1;
+                    return UI_FB_SELECT;
+                }
                 if (fb->count > 0 && fb->cursor >= 0 && fb->cursor < fb->count) {
                     struct ui_fb_entry *e = &fb->entries[fb->cursor];
                     if (e->is_drive) {

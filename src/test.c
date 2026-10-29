@@ -1107,6 +1107,32 @@ static void test_filebrowser(void) {
     expect(forced_fb.entries[0].is_parent == 0, "no .. allowed at forced root");
     expect(ui_filebrowser_is_allowed(&forced_fb, "build/test_fb/media/MPC") == 0, "parent of forced root is forbidden");
 
+    // 15. Back leaves immediately. SET picks the current folder.
+    struct ui_filebrowser back_fb;
+    struct ui_filebrowser_config back_cfg = {
+        .initial_path = "build/test_fb/media/MPC/drums",
+        .external_path = "build/test_fb/media/MPC",
+        .internal_path = "build/test_fb/data",
+        .options = UI_FB_OPT_BACK | UI_FB_OPT_SELECT_DIR | UI_FB_OPT_DIRS_ONLY | UI_FB_OPT_HIDE_DOTFILES,
+        .title = "DEFAULT FOLDER",
+        .action_label = "SET",
+    };
+    ui_filebrowser_init(&back_fb, &back_cfg);
+    expect(strcmp(back_fb.cwd, "build/test_fb/media/MPC/drums") == 0, "back browser starts in folder");
+    in = blank();
+    in.down = (1u << IN_B1);
+    res = ui_filebrowser(&u, 0, 0, UI_W, UI_H, &back_fb, st, &in);
+    expect(res == UI_FB_CANCEL, "BACK cancels from inside a folder");
+    expect(strcmp(back_fb.cwd, "build/test_fb/media/MPC/drums") == 0, "BACK does not move up");
+
+    ui_filebrowser_init(&back_fb, &back_cfg);
+    in = blank();
+    in.down = (1u << IN_B3);
+    res = ui_filebrowser(&u, 0, 0, UI_W, UI_H, &back_fb, st, &in);
+    expect(res == UI_FB_SELECT, "SET selects the current folder");
+    expect(strcmp(back_fb.selected_path, "build/test_fb/media/MPC/drums") == 0, "selected path is the folder");
+    expect(back_fb.selected_is_dir == 1, "selection is a directory");
+
     // Cleanup temp dir
     ret = system("rm -rf build/test_fb");
     (void)ret;
