@@ -27,6 +27,8 @@ struct text_edit_state { char name[32]; struct ui_text_editor editor; int editin
 int text_edit_frame(struct ui *u, const struct input *in, void *state);
 struct filebrowser_demo_state { struct ui_filebrowser fb; char last_selected[UI_FB_MAX_PATH]; int show_banner; };
 int filebrowser_frame(struct ui *u, const struct input *in, void *state);
+struct usb_sd_demo_state { int open; struct ui_usb_sd usb; struct ui_list_state ls; };
+int usb_sd_frame(struct ui *u, const struct input *in, void *state);
 
 static int write_ppm(const char *path, const uint32_t *px) {
     FILE *f = fopen(path, "wb");
@@ -116,6 +118,11 @@ int main(void) {
     };
     ui_filebrowser_init(&fb_demo.fb, &fb_cfg);
     rc |= shot("filebrowser", filebrowser_frame, &fb_demo);
+
+    struct usb_sd_demo_state usb_sd = {.open = 1};
+    ui_usb_sd_init(&usb_sd.usb);
+    ui_usb_sd_set_mock(1, 0);
+    rc |= shot("usb-sd", usb_sd_frame, &usb_sd);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};

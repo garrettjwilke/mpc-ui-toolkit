@@ -218,3 +218,4 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
                    struct ui_text_editor_style st, const struct input *in);
 
 #include "filebrowser.h"
+#include "usb_sd.h"

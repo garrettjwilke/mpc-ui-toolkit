@@ -1179,6 +1179,103 @@ static void test_filebrowser(void) {
     (void)ret;
 }
 
+static int region_has(const struct ui *u, int x, int y, int w, int h, uint32_t color) {
+    for (int row = y; row < y + h; row++)
+        for (int col = x; col < x + w; col++)
+            if (px(u, col, row) == color) return 1;
+    return 0;
+}
+
+static void test_usb_sd(void) {
+    ui_usb_sd_set_mock(1, 0);
+    uint32_t buf[UI_W * UI_H];
+    struct ui u = {.px = buf};
+    struct ui_usb_sd s;
+    struct ui_usb_sd_style st = ui_usb_sd_style_default();
+    ui_usb_sd_init(&s);
+
+    struct input in = blank();
+    int rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_ACTIVE, "first usb frame stays open");
+    expect(s.phase == UI_USB_SD_PHASE_PREPARING, "first usb frame is preparing");
+    expect(u.wake_ms == 1, "preparing asks for the start frame");
+    expect(!ui_usb_sd_is_active(&s), "card is not bound while preparing");
+    expect(region_has(&u, 28, 96, 180, 12, st.hl), "preparing heading is drawn");
+
+    u.wake_ms = 0;
+    in = blank();
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_ACTIVE, "start frame stays open");
+    expect(s.phase == UI_USB_SD_PHASE_ACTIVE, "mock start reaches active");
+    expect(ui_usb_sd_is_active(&s), "card is bound while active");
+    expect(u.wake_ms == 0, "active does not request a frame");
+    expect(region_has(&u, 28, 92, 160, 12, st.hl), "active heading is drawn");
+
+    in = blank();
+    in.encoder = 5;
+    in.down = (1u << IN_B2) | (1u << IN_B3);
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_ACTIVE && s.phase == UI_USB_SD_PHASE_ACTIVE, "wheel and B2/B3 stay on the card");
+
+    in = blank();
+    in.down = 1u << IN_B1;
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_ACTIVE, "exit press stays open");
+    expect(s.phase == UI_USB_SD_PHASE_EXITING, "B1 starts eject");
+    expect(u.wake_ms == 1, "exiting asks for the stop frame");
+    expect(ui_usb_sd_is_active(&s), "card stays bound until stop runs");
+
+    u.wake_ms = 0;
+    in = blank();
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_DONE, "stop frame finishes");
+    expect(s.phase == UI_USB_SD_PHASE_DONE, "phase is done");
+    expect(!ui_usb_sd_is_active(&s), "card is unbound after stop");
+
+    ui_usb_sd_init(&s);
+    in = blank();
+    ui_usb_sd(&u, &s, st, &in);
+    in = blank();
+    ui_usb_sd(&u, &s, st, &in);
+    expect(s.phase == UI_USB_SD_PHASE_ACTIVE, "second session reaches active");
+    in = blank();
+    in.encoder_press = 1;
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_ACTIVE && s.phase == UI_USB_SD_PHASE_EXITING, "encoder press starts eject");
+    in = blank();
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_DONE, "encoder eject finishes");
+
+    ui_usb_sd_set_mock(1, 1);
+    ui_usb_sd_init(&s);
+    in = blank();
+    ui_usb_sd(&u, &s, st, &in);
+    in = blank();
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_ACTIVE && s.phase == UI_USB_SD_PHASE_ERROR, "failed start shows the error");
+    expect(!ui_usb_sd_is_active(&s), "failed start does not bind the card");
+    expect(strcmp(s.err, "Mock failure starting USB storage") == 0, "error text is kept");
+    expect(region_has(&u, 28, 92, 200, 12, st.hl), "error heading is drawn");
+    in = blank();
+    in.encoder_press = 1;
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_FAILED, "encoder leaves the error");
+    expect(s.phase == UI_USB_SD_PHASE_FAILED, "phase is failed");
+
+    ui_usb_sd_set_mock(1, 0);
+    ui_usb_sd_init(&s);
+    in = blank();
+    ui_usb_sd(&u, &s, st, &in);
+    in = blank();
+    ui_usb_sd(&u, &s, st, &in);
+    expect(ui_usb_sd_is_active(&s), "stop test starts bound");
+    expect(ui_usb_sd_stop(&s) == 0, "stop while active succeeds");
+    expect(!ui_usb_sd_is_active(&s), "stop clears the binding");
+    expect(s.phase == UI_USB_SD_PHASE_DONE, "stop marks the session done");
+    rc = ui_usb_sd(&u, &s, st, &in);
+    expect(rc == UI_USB_SD_DONE, "a stopped session stays done");
+}
+
 int main(void) {
     test_parser();
     test_changes();
@@ -1198,6 +1295,7 @@ int main(void) {
     test_text_editor();
     test_diagnostics();
     test_filebrowser();
+    test_usb_sd();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
         return 1;

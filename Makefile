@@ -20,8 +20,8 @@ DEV = $(BUILD)/device
 ZIGCC = zig cc -target aarch64-linux-musl
 ZIGCFLAGS = -O2 -D_DEFAULT_SOURCE $(WARN) -I src
 
-EXAMPLES = clear boxes buttons highlight soft_keys knobs list pads anim sudoku text_edit diagnostics filebrowser
-BINS = clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser
+EXAMPLES = clear boxes buttons highlight soft_keys knobs list pads anim sudoku text_edit diagnostics filebrowser usb_sd
+BINS = clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser usb-sd
 
 .PHONY: all test preview clean
 
@@ -40,7 +40,7 @@ $(HOST)/src/%.o: src/%.c | $(HOST)/src
 $(HOST)/examples/%.o: examples/%.c | $(HOST)/examples
 	$(HOSTCC) $(CFLAGS) -DUI_NO_MAIN -MMD -MP -c -o $@ $<
 
-HOST_CORE = $(HOST)/src/ui.o $(HOST)/src/widgets.o $(HOST)/src/filebrowser.o $(HOST)/src/input.o
+HOST_CORE = $(HOST)/src/ui.o $(HOST)/src/widgets.o $(HOST)/src/filebrowser.o $(HOST)/src/usb_sd.o $(HOST)/src/input.o
 HOST_EX = $(addprefix $(HOST)/examples/,$(EXAMPLES:=.o))
 
 $(BUILD)/preview: $(HOST)/src/preview.o $(HOST_CORE) $(HOST_EX)
@@ -53,7 +53,7 @@ $(TEST)/src/%.o: src/%.c | $(TEST)/src
 $(TEST)/examples/%.o: examples/%.c | $(TEST)/examples
 	$(TESTCC) $(CFLAGS) -fsanitize=address,undefined -DUI_NO_MAIN -MMD -MP -c -o $@ $<
 
-TEST_CORE = $(TEST)/src/ui.o $(TEST)/src/widgets.o $(TEST)/src/filebrowser.o $(TEST)/src/input.o $(TEST)/src/test.o
+TEST_CORE = $(TEST)/src/ui.o $(TEST)/src/widgets.o $(TEST)/src/filebrowser.o $(TEST)/src/usb_sd.o $(TEST)/src/input.o $(TEST)/src/test.o
 TEST_EX = $(addprefix $(TEST)/examples/,$(EXAMPLES:=.o))
 
 $(BUILD)/ui-test: $(TEST_CORE) $(TEST_EX)
@@ -67,7 +67,7 @@ $(DEV)/examples/%.o: examples/%.c | $(DEV)/examples
 	$(ZIGCC) $(ZIGCFLAGS) -MMD -MP -c -o $@ $<
 
 DEV_COMMON = $(DEV)/src/app.o $(DEV)/src/screen.o $(DEV)/src/surface.o \
-             $(DEV)/src/ui.o $(DEV)/src/widgets.o $(DEV)/src/filebrowser.o $(DEV)/src/input.o
+             $(DEV)/src/ui.o $(DEV)/src/widgets.o $(DEV)/src/filebrowser.o $(DEV)/src/usb_sd.o $(DEV)/src/input.o
 
 define device
 $(BIN)/$1: $(DEV_COMMON) $(DEV)/examples/$2.o | $(BIN)
@@ -87,6 +87,7 @@ $(eval $(call device,sudoku,sudoku))
 $(eval $(call device,text-edit,text_edit))
 $(eval $(call device,diagnostics,diagnostics))
 $(eval $(call device,filebrowser,filebrowser))
+$(eval $(call device,usb-sd,usb_sd))
 
 $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/examples $(BIN) $(BUILD)/shots:
 	mkdir -p $@
@@ -96,4 +97,4 @@ $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/exam
 clean:
 	rm -rf $(BUILD) $(BIN) \
 	       ui-test ui-test.dSYM preview-bin preview-bin.dSYM shots \
-	       clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics *.dSYM
+	       clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser usb-sd *.dSYM
