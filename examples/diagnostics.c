@@ -116,7 +116,7 @@ int diagnostics_frame(struct ui *u, const struct input *in, void *state) {
             int btn_idx = BUTTON_LAYOUT[b].btn;
             if (in->down & (1u << btn_idx)) {
                 char buf[64];
-                snprintf(buf, sizeof buf, "BTN %s DOWN (Note %d)", BUTTON_LAYOUT[b].name, INPUT_BUTTON_NOTE[btn_idx]);
+                snprintf(buf, sizeof buf, "BTN %s DOWN (Note %d vel 127)", BUTTON_LAYOUT[b].name, INPUT_BUTTON_NOTE[btn_idx]);
                 log_event(s, buf);
             }
         }

@@ -62,6 +62,15 @@ static void test_parser(void) {
     unsigned char enc[3] = {0xb0, 100, 0x7f};
     input_push(&dev, &in, enc);
     expect(in.encoder == -1, "encoder step");
+    unsigned char enc_plus[3] = {0xb0, 100, 1};
+    input_push(&dev, &in, enc_plus);
+    expect(in.encoder == 0, "encoder +1 then -1 cancels");
+    unsigned char enc_bad[3] = {0xb0, 100, 40};
+    input_push(&dev, &in, enc_bad);
+    expect(in.encoder == 0, "encoder ignores values other than 1 and 127");
+    input_push(&dev, &in, enc);
+    expect(in.encoder == -1, "encoder -1");
+
     unsigned char sh[3] = {0x90, 49, 127};
     unsigned char push[3] = {0x90, 111, 127};
     input_push(&dev, &in, sh);
@@ -75,6 +84,38 @@ static void test_parser(void) {
     unsigned char up[3] = {0x80, 49, 0};
     input_push(&dev, &next, up);
     expect(!next.shift && (next.held & (1u << IN_SHIFT)) == 0, "shift released");
+    expect((next.up & (1u << IN_SHIFT)) != 0, "shift release is an edge");
+
+    struct input_dev ghost = {0};
+    struct input bad;
+    input_begin(&bad, &ghost);
+    unsigned char led[3] = {0x90, 6, 8};
+    input_push(&ghost, &bad, led);
+    expect(bad.down == 0 && bad.held == 0, "velocity 8 does not press a button");
+
+    unsigned char sample[3] = {0x90, 6, 127};
+    input_push(&ghost, &bad, sample);
+    expect((bad.down & (1u << IN_SAMPLE)) != 0, "velocity 127 presses");
+    expect((bad.held & (1u << IN_SAMPLE)) != 0, "velocity 127 holds");
+    struct input repeat;
+    input_begin(&repeat, &ghost);
+    input_push(&ghost, &repeat, sample);
+    expect(repeat.down == 0, "repeat note-on while held is not a new edge");
+    expect((repeat.held & (1u << IN_SAMPLE)) != 0, "repeat note-on stays held");
+
+    unsigned char sample_off[3] = {0x80, 6, 0};
+    input_push(&ghost, &bad, sample_off);
+    expect(bad.down == 0 && bad.up == 0 && bad.held == 0, "press and release in one frame is ignored");
+    expect((ghost.held & (1u << IN_SAMPLE)) == 0, "spike does not stay held");
+
+    struct input later;
+    input_begin(&later, &ghost);
+    input_push(&ghost, &later, sample);
+    struct input released;
+    input_begin(&released, &ghost);
+    input_push(&ghost, &released, sample_off);
+    expect((released.up & (1u << IN_SAMPLE)) != 0, "release on a later frame is reported");
+    expect((released.held & (1u << IN_SAMPLE)) == 0, "later release clears held");
 }
 
 static void test_changes(void) {
@@ -870,7 +911,7 @@ static void test_diagnostics(void) {
     in.held = (1u << IN_MUTE);
     diagnostics_frame(&u, &in, &s);
     expect(s.total_events == 2, "button down event logged");
-    expect(strstr(s.event_log[0], "BTN MUTE DOWN") != NULL, "mute button log text");
+    expect(strstr(s.event_log[0], "BTN MUTE DOWN (Note 43 vel 127)") != NULL, "mute button log text");
     expect((u.button_mask & (1u << IN_MUTE)) != 0, "mute led updated");
     expect(u.button_level[IN_MUTE] == 2, "mute led bright while held");
 

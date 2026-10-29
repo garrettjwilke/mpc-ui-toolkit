@@ -86,24 +86,41 @@ void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]) 
             f->fader = v;
             f->fader_pos = v;
         } else if (d1 == 100) {
-            f->encoder += v > 64 ? v - 128 : v;
+            if (v == 1) f->encoder += 1;
+            else if (v == 0x7f) f->encoder -= 1;
         }
         return;
     }
     if (st == 0x90 || st == 0x80) {
         int b = button_from_note(d1);
         if (b < 0) return;
-        int down = st == 0x90 && d2 > 0;
-        if (down) {
-            f->down |= 1u << b;
-            f->held |= 1u << b;
-            if (d) d->held |= 1u << b;
+        unsigned bit = 1u << b;
+        // The surface only sends 7F for a press. Other velocities are LED
+        // traffic or a torn message, and they must not latch a button.
+        int press = st == 0x90 && d2 == 0x7f;
+        int release = st == 0x80 || (st == 0x90 && d2 == 0);
+        if (press) {
+            if ((f->held & bit) == 0) {
+                f->down |= bit;
+                f->held |= bit;
+                if (d) d->held |= bit;
+                if (b == IN_ENCODER) f->encoder_press = 1;
+            }
+        } else if (release) {
+            f->held &= ~bit;
+            if (d) d->held &= ~bit;
+            if (f->down & bit) {
+                // Press and release arrived in this same drain. The finger
+                // is up, so the app never sees the edge.
+                f->down &= ~bit;
+                f->up &= ~bit;
+                if (b == IN_ENCODER) f->encoder_press = 0;
+            } else {
+                f->up |= bit;
+            }
         } else {
-            f->up |= 1u << b;
-            f->held &= ~(1u << b);
-            if (d) d->held &= ~(1u << b);
+            return;
         }
-        if (b == IN_ENCODER && down) f->encoder_press = 1;
         if (d) d->shift = (d->held & (1u << IN_SHIFT)) != 0;
         f->shift = (f->held & (1u << IN_SHIFT)) != 0;
     }
