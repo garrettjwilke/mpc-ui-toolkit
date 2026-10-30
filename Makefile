@@ -1,5 +1,6 @@
-# C UI toolkit for the MPC Sample. `make` cross-builds the device binaries.
-# Objects and host tools land in build/. The binaries to load are in bin/.
+# C UI toolkit for the MPC Sample. `make` cross-builds the device binaries
+# into bin/ and packs bin/<name>.zip for each one.
+# Objects, host tools, and unpacked autorun folders land in build/.
 # zig cc is only the cross-compiler.
 WARN = -Wall -Wextra -std=c11
 HOSTCC = cc
@@ -25,7 +26,7 @@ BINS = clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-
 
 .PHONY: all test preview clean
 
-all: $(addprefix $(BIN)/,$(BINS))
+all: $(addsuffix .zip,$(addprefix $(BIN)/,$(BINS)))
 
 test: $(BUILD)/ui-test
 	./$(BUILD)/ui-test
@@ -88,6 +89,11 @@ $(eval $(call device,text-edit,text_edit))
 $(eval $(call device,diagnostics,diagnostics))
 $(eval $(call device,filebrowser,filebrowser))
 $(eval $(call device,usb-sd,usb_sd))
+
+# One autorun zip per example. The unpacked folder stays under build/pkg/<name>/.
+$(BIN)/%.zip: $(BIN)/% tools/pack-autorun.sh
+	tools/pack-autorun.sh --name $* --bin $< --out $(BUILD)/pkg/$*
+	cp $(BUILD)/pkg/$*/$*.zip $@
 
 $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/examples $(BIN) $(BUILD)/shots:
 	mkdir -p $@

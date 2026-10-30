@@ -76,7 +76,7 @@ While the menu is open its pads light. Releasing the combination turns those pad
 
 ## Examples
 
-Each file is one screen and one idea. `make` builds fourteen static binaries in `bin/`: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`, `sudoku`, `text-edit`, `diagnostics`, `filebrowser`, `usb-sd`. Load one of those with mpc-boot-thingy. Object files and the host tools stay in `build/`. There is no installer.
+Each file is one screen and one idea. `make` builds fourteen static binaries in `bin/` and a zip next to each one: `clear`, `boxes`, `buttons`, `highlight`, `soft-keys`, `knobs`, `list`, `pads`, `anim`, `sudoku`, `text-edit`, `diagnostics`, `filebrowser`, `usb-sd`. Load `bin/<name>.zip` with mpc-boot-thingy. Object files and the unpacked `autorun/` folders stay in `build/`.
 
 `usb-sd` opens USB SD card access from a single list row, then returns to that row when the computer ejects the card or the start fails.
 
@@ -95,7 +95,34 @@ Each example leaves from a menu it owns. `examples/menu.h` is that menu. Most of
 ```sh
 make test      # build/ui-test, host pixel checks
 make preview   # build/shots/*.ppm
-make           # bin/*, aarch64-linux-musl static binaries
+make           # bin/<name> and bin/<name>.zip
 ```
+
+## Autorun package
+
+`make` writes `bin/<name>.zip` for every example. The zip holds one `autorun/` folder. The stock runner starts that folder when the card is inserted. Another app, after it has the toolkit as a submodule and has built its own binary, calls the same script:
+
+```sh
+mpc-ui-toolkit/tools/pack-autorun.sh \
+  --name my-app \
+  --bin build/bin/my-app \
+  --out build
+```
+
+That writes `build/autorun/` and `build/my-app.zip`. The zip's entries are `autorun/...`, even though the folder on disk lives under `build/`.
+
+`autorun.json` has `askQuestion` set to false, so the runner starts the script with no dialog. `autorun.check` is the stock runner's hash of `autorun.json` and `autorun.sh`. A mismatch will not boot. Run the script again after a rebuild. Do not edit the generated files.
+
+On the device the script copies the program to `/run` and starts that copy, because the card is mounted noexec. It sets `MPC_APP_DIR` to the package directory on the card. Keep saves there. From the boot menu the program stays in the foreground, so the menu gets the screen back when it exits. On a plain card it is started with `systemd-run`, so the stock runner can return, and the stock app is stopped until the program exits.
+
+Copy `<out>/autorun/` onto the card, or add the zip with mpc-boot-thingy:
+
+```sh
+setup.sh --SD "/path/to/card" --add bin/clear.zip
+```
+
+For the command above, the zip is `build/my-app.zip`. `--add path` copies one more file into `autorun/` under its own name. Repeat it for each file.
+
+The script needs `python3`, and `shasum` or `sha256sum`.
 
 The font is Terminus, generated into `src/font.h`. The license is `assets/fonts/OFL.txt`.
