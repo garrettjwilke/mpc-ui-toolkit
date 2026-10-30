@@ -1174,6 +1174,38 @@ static void test_filebrowser(void) {
     expect(strcmp(back_fb.selected_path, "build/test_fb/media/MPC/drums") == 0, "selected path is the folder");
     expect(back_fb.selected_is_dir == 1, "selection is a directory");
 
+    // 16. Test Storage Safety Primitives (Atomic Write, fsync, sync_dir)
+    const char *test_safe_path = "build/test_fb/media/MPC/atomic_test.txt";
+    const char *payload = "Sample safe write payload with fsync verification";
+    expect(ui_safe_atomic_write(test_safe_path, payload, strlen(payload)) == 0, "atomic safe write succeeds");
+    FILE *rf = fopen(test_safe_path, "r");
+    expect(rf != NULL, "atomic written file exists");
+    if (rf) {
+        char read_back[128] = {0};
+        size_t n = fread(read_back, 1, sizeof(read_back) - 1, rf);
+        expect(n == strlen(payload), "atomic written content length matches");
+        expect(strcmp(read_back, payload) == 0, "atomic content matches");
+        expect(ui_fsync_file(rf) == 0, "ui_fsync_file succeeds on open file");
+        fclose(rf);
+    }
+    expect(ui_sync_dir("build/test_fb/media/MPC") == 0, "ui_sync_dir succeeds on existing directory");
+
+    // 17. Test File Browser Auto-Recovery from Stale / Unmounted cwd
+    struct ui_filebrowser stale_fb;
+    struct ui_filebrowser_config stale_cfg = {
+        .initial_path = "build/test_fb/media/MPC/drums",
+        .external_path = "build/test_fb/media/MPC",
+        .internal_path = "build/test_fb/data",
+    };
+    ui_filebrowser_init(&stale_fb, &stale_cfg);
+    expect(strcmp(stale_fb.cwd, "build/test_fb/media/MPC/drums") == 0, "stale_fb starts in drums");
+    // Simulate directory being unmounted/removed underneath
+    ret = system("rm -rf build/test_fb/media/MPC/drums");
+    (void)ret;
+    ui_filebrowser_refresh(&stale_fb);
+    expect(stale_fb.cwd[0] == '\0', "refresh recovers stale cwd to storage locations view");
+    expect(stale_fb.count > 0, "drives available after recovery");
+
     // Cleanup temp dir
     ret = system("rm -rf build/test_fb");
     (void)ret;

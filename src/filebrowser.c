@@ -133,6 +133,98 @@ static void format_size(uint32_t bytes, char *buf, size_t n) {
     }
 }
 
+int ui_fsync_fd(int fd) {
+    if (fd < 0) return -1;
+#if defined(__APPLE__) && defined(F_FULLFSYNC)
+    if (fcntl(fd, F_FULLFSYNC) == 0) return 0;
+#endif
+    return fsync(fd);
+}
+
+int ui_fsync_file(FILE *f) {
+    if (!f) return -1;
+    if (fflush(f) != 0) return -1;
+    int fd = fileno(f);
+    if (fd < 0) return -1;
+    return ui_fsync_fd(fd);
+}
+
+int ui_sync_dir(const char *dir_path) {
+    if (!dir_path || !dir_path[0]) return 0;
+    int dfd = open(dir_path, O_RDONLY);
+    if (dfd < 0) return -1;
+    int rc = ui_fsync_fd(dfd);
+    close(dfd);
+    return rc;
+}
+
+void ui_sync_storage(void) {
+    sync();
+}
+
+static void get_parent_dir(char *out, size_t out_sz, const char *path) {
+    if (!path || !path[0]) {
+        snprintf(out, out_sz, ".");
+        return;
+    }
+    char tmp[UI_FB_MAX_PATH];
+    snprintf(tmp, sizeof tmp, "%s", path);
+    normalize_path(tmp);
+    char *last = strrchr(tmp, '/');
+    if (!last) {
+        snprintf(out, out_sz, ".");
+    } else if (last == tmp) {
+        snprintf(out, out_sz, "/");
+    } else {
+        *last = '\0';
+        snprintf(out, out_sz, "%s", tmp);
+    }
+}
+
+int ui_safe_atomic_write(const char *path, const void *buf, size_t len) {
+    if (!path || !path[0]) return -1;
+
+    char tmp_path[UI_FB_MAX_PATH];
+    snprintf(tmp_path, sizeof tmp_path, "%s.tmp.%ld", path, (long)getpid());
+
+    int fd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+
+    const char *p = (const char *)buf;
+    size_t left = len;
+    while (left > 0) {
+        ssize_t w = write(fd, p, left);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            close(fd);
+            unlink(tmp_path);
+            return -1;
+        }
+        left -= (size_t)w;
+        p += w;
+    }
+
+    if (ui_fsync_fd(fd) != 0) {
+        close(fd);
+        unlink(tmp_path);
+        return -1;
+    }
+    if (close(fd) != 0) {
+        unlink(tmp_path);
+        return -1;
+    }
+
+    if (rename(tmp_path, path) != 0) {
+        unlink(tmp_path);
+        return -1;
+    }
+
+    char parent[UI_FB_MAX_PATH];
+    get_parent_dir(parent, sizeof parent, path);
+    ui_sync_dir(parent);
+    return 0;
+}
+
 int ui_filebrowser_copy_file(const char *src, const char *dst) {
     int in_fd = open(src, O_RDONLY);
     if (in_fd < 0) return -1;
@@ -167,16 +259,42 @@ int ui_filebrowser_copy_file(const char *src, const char *dst) {
     }
 
     close(in_fd);
+    if (r < 0) {
+        close(out_fd);
+        unlink(dst);
+        return -1;
+    }
+
+    ui_fsync_fd(out_fd);
     close(out_fd);
-    return (r < 0) ? -1 : 0;
+
+    char parent[UI_FB_MAX_PATH];
+    get_parent_dir(parent, sizeof parent, dst);
+    ui_sync_dir(parent);
+
+    return 0;
 }
 
 int ui_filebrowser_move_file(const char *src, const char *dst) {
     if (strcmp(src, dst) == 0) return 0;
-    if (rename(src, dst) == 0) return 0;
+    if (rename(src, dst) == 0) {
+        char parent1[UI_FB_MAX_PATH], parent2[UI_FB_MAX_PATH];
+        get_parent_dir(parent1, sizeof parent1, src);
+        get_parent_dir(parent2, sizeof parent2, dst);
+        ui_sync_dir(parent1);
+        ui_sync_dir(parent2);
+        return 0;
+    }
     if (errno == EXDEV) { // Cross-mount move
+        struct stat st;
+        if (stat(src, &st) == 0 && S_ISDIR(st.st_mode)) {
+            return -1;
+        }
         if (ui_filebrowser_copy_file(src, dst) == 0) {
             unlink(src);
+            char parent[UI_FB_MAX_PATH];
+            get_parent_dir(parent, sizeof parent, src);
+            ui_sync_dir(parent);
             return 0;
         }
     }
@@ -184,11 +302,22 @@ int ui_filebrowser_move_file(const char *src, const char *dst) {
 }
 
 int ui_filebrowser_delete_path(const char *path, int is_dir) {
-    return is_dir ? rmdir(path) : unlink(path);
+    int rc = is_dir ? rmdir(path) : unlink(path);
+    if (rc == 0) {
+        char parent[UI_FB_MAX_PATH];
+        get_parent_dir(parent, sizeof parent, path);
+        ui_sync_dir(parent);
+    }
+    return rc;
 }
 
 int ui_filebrowser_make_dir(const char *path) {
-    return mkdir(path, 0755);
+    if (mkdir(path, 0755) != 0) return -1;
+    char parent[UI_FB_MAX_PATH];
+    get_parent_dir(parent, sizeof parent, path);
+    ui_sync_dir(parent);
+    ui_sync_dir(path);
+    return 0;
 }
 
 static void make_unique_copy_name(const char *dir, const char *src_name, char *dst_path, size_t dst_sz) {
@@ -286,18 +415,6 @@ static void detect_storage_drives(struct ui_filebrowser *fb, const struct ui_fil
                 }
             }
             closedir(md);
-        }
-
-        // If /media had no subdirectories, but /media is present
-        if (fb->drive_count == 0) {
-            struct stat st;
-            if (stat("/media", &st) == 0 && S_ISDIR(st.st_mode)) {
-                struct ui_fb_drive *d = &fb->drives[fb->drive_count++];
-                snprintf(d->path, sizeof d->path, "/media");
-                snprintf(d->name, sizeof d->name, "SD Card (/media)");
-                d->is_removable = 1;
-                snprintf(fb->external_path, sizeof fb->external_path, "/media");
-            }
         }
     }
 
@@ -474,8 +591,22 @@ void ui_filebrowser_refresh(struct ui_filebrowser *fb) {
 
     DIR *d = opendir(fb->cwd);
     if (!d) {
-        snprintf(fb->status_msg, sizeof fb->status_msg, "Cannot open folder");
-        fb->status_is_error = 1;
+        // Stale or detached directory handle (e.g. following USB mount/unmount)
+        // Automatically recover to top-level Storage Locations view
+        fb->cwd[0] = '\0';
+        detect_storage_drives(fb, NULL);
+        fb->count = 0;
+        for (int i = 0; i < fb->drive_count && fb->count < fb->capacity; i++) {
+            struct ui_fb_entry *e = &fb->entries[fb->count++];
+            snprintf(e->name, sizeof e->name, "%s", fb->drives[i].name);
+            e->size = 0;
+            e->is_dir = 1;
+            e->is_parent = 0;
+            e->is_cut = 0;
+            e->is_drive = 1;
+        }
+        snprintf(fb->status_msg, sizeof fb->status_msg, "Storage remounted: locations view");
+        fb->status_is_error = 0;
         return;
     }
 

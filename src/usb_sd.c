@@ -130,6 +130,13 @@ static int sd_is_mounted(const char *sd_dev) {
 }
 
 static void unmount_sd_partitions(const char *sd_dev) {
+    /* Protect against busy cwd locking the mount */
+    if (chdir("/tmp") != 0) {
+        (void)chdir("/");
+    }
+
+    sync();
+    usleep(50 * 1000);
     sync();
 
     FILE *f = fopen("/proc/mounts", "r");
@@ -173,7 +180,13 @@ static void unmount_sd_partitions(const char *sd_dev) {
             run_cmd(av_edisks_dev);
         }
 #ifdef __linux__
-        if (umount(mounts[i]) != 0) umount2(mounts[i], MNT_DETACH);
+        /* Attempt clean unmount first */
+        if (umount(mounts[i]) != 0) {
+            /* Try remounting read-only before detaching */
+            char *av_ro[] = {"mount", "-o", "remount,ro", mounts[i], NULL};
+            run_cmd(av_ro);
+            umount2(mounts[i], MNT_DETACH);
+        }
 #endif
         char *av_umount[] = {"umount", mounts[i], NULL};
         if (run_cmd(av_umount) != 0) {
@@ -280,6 +293,14 @@ static int stop_backend(char *err_buf, size_t err_len) {
             usleep(100 * 1000);
         }
     }
+
+    sync();
+    int cfd2 = open("/proc/sys/vm/drop_caches", O_WRONLY);
+    if (cfd2 >= 0) {
+        write(cfd2, "3\n", 2);
+        close(cfd2);
+    }
+
     return 0;
 }
 

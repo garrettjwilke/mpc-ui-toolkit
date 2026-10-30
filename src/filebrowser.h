@@ -7,7 +7,13 @@
 #include "ui.h"
 #include "input.h"
 #include "widgets.h"
+#include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define UI_FB_MAX_NAME 128
 #define UI_FB_MAX_PATH 512
@@ -193,7 +199,18 @@ int ui_filebrowser_move_file(const char *src, const char *dst);
 int ui_filebrowser_delete_path(const char *path, int is_dir);
 int ui_filebrowser_make_dir(const char *path);
 
+// Storage safety and persistence flushing helpers
+int ui_fsync_fd(int fd);
+int ui_fsync_file(FILE *f);
+int ui_sync_dir(const char *dir_path);
+int ui_safe_atomic_write(const char *path, const void *buf, size_t len);
+void ui_sync_storage(void);
+
 // Draw the file browser within rect (x, y, w, h) and handle input.
 // Returns UI_FB_ACTIVE, UI_FB_SELECT, or UI_FB_CANCEL.
 int ui_filebrowser(struct ui *u, int x, int y, int w, int h, struct ui_filebrowser *fb,
                    struct ui_filebrowser_style st, const struct input *in);
+
+#ifdef __cplusplus
+}
+#endif
