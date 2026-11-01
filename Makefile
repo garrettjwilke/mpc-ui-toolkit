@@ -4,7 +4,7 @@
 # zig cc is only the cross-compiler.
 WARN = -Wall -Wextra -std=c11
 HOSTCC = cc
-CFLAGS = -D_DEFAULT_SOURCE -g $(WARN) -I src
+CFLAGS = -D_DEFAULT_SOURCE -g $(WARN) -I src -I deps/md4c/src
 # Apple clang 17 deadlocks in ASan startup on macOS 26. Use Homebrew clang when it is installed.
 TESTCC = $(HOSTCC)
 ifeq ($(shell $(HOSTCC) --version 2>/dev/null | awk 'NR==1 { print $$1 $$2 }'),Appleclang)
@@ -19,10 +19,10 @@ HOST = $(BUILD)/host
 TEST = $(BUILD)/test
 DEV = $(BUILD)/device
 ZIGCC = zig cc -target aarch64-linux-musl
-ZIGCFLAGS = -O2 -D_DEFAULT_SOURCE $(WARN) -I src
+ZIGCFLAGS = -O2 -D_DEFAULT_SOURCE $(WARN) -I src -I deps/md4c/src
 
-EXAMPLES = clear boxes buttons highlight soft_keys knobs list pads anim sudoku text_edit diagnostics filebrowser usb_sd
-BINS = clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser usb-sd
+EXAMPLES = clear boxes buttons highlight soft_keys knobs list pads anim sudoku text_edit diagnostics filebrowser usb_sd help
+BINS = clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser usb-sd help
 
 .PHONY: all test preview clean
 
@@ -41,10 +41,11 @@ $(HOST)/src/%.o: src/%.c | $(HOST)/src
 $(HOST)/examples/%.o: examples/%.c | $(HOST)/examples
 	$(HOSTCC) $(CFLAGS) -DUI_NO_MAIN -MMD -MP -c -o $@ $<
 
-HOST_CORE = $(HOST)/src/ui.o $(HOST)/src/widgets.o $(HOST)/src/filebrowser.o $(HOST)/src/usb_sd.o $(HOST)/src/input.o
+HOST_CORE = $(HOST)/src/ui.o $(HOST)/src/widgets.o $(HOST)/src/filebrowser.o $(HOST)/src/usb_sd.o $(HOST)/src/input.o \
+            $(HOST)/src/help.o $(HOST)/src/image.o $(HOST)/src/md4c.o
 HOST_EX = $(addprefix $(HOST)/examples/,$(EXAMPLES:=.o))
 
-$(BUILD)/preview: $(HOST)/src/preview.o $(HOST_CORE) $(HOST_EX)
+$(BUILD)/preview: $(HOST)/src/preview.o $(HOST_CORE) $(HOST_EX) $(HOST)/examples/help_pages.o
 	$(HOSTCC) $(CFLAGS) -o $@ $^
 
 # Sanitized objects, separate from the preview objects.
@@ -54,10 +55,11 @@ $(TEST)/src/%.o: src/%.c | $(TEST)/src
 $(TEST)/examples/%.o: examples/%.c | $(TEST)/examples
 	$(TESTCC) $(CFLAGS) -fsanitize=address,undefined -DUI_NO_MAIN -MMD -MP -c -o $@ $<
 
-TEST_CORE = $(TEST)/src/ui.o $(TEST)/src/widgets.o $(TEST)/src/filebrowser.o $(TEST)/src/usb_sd.o $(TEST)/src/input.o $(TEST)/src/test.o
+TEST_CORE = $(TEST)/src/ui.o $(TEST)/src/widgets.o $(TEST)/src/filebrowser.o $(TEST)/src/usb_sd.o $(TEST)/src/input.o \
+            $(TEST)/src/help.o $(TEST)/src/image.o $(TEST)/src/md4c.o $(TEST)/src/test.o
 TEST_EX = $(addprefix $(TEST)/examples/,$(EXAMPLES:=.o))
 
-$(BUILD)/ui-test: $(TEST_CORE) $(TEST_EX)
+$(BUILD)/ui-test: $(TEST_CORE) $(TEST_EX) $(TEST)/examples/help_pages.o
 	$(TESTCC) $(CFLAGS) -fsanitize=address,undefined -o $@ $^
 
 # Device objects. One static binary per example, linked into bin/.
@@ -68,7 +70,8 @@ $(DEV)/examples/%.o: examples/%.c | $(DEV)/examples
 	$(ZIGCC) $(ZIGCFLAGS) -MMD -MP -c -o $@ $<
 
 DEV_COMMON = $(DEV)/src/app.o $(DEV)/src/screen.o $(DEV)/src/surface.o \
-             $(DEV)/src/ui.o $(DEV)/src/widgets.o $(DEV)/src/filebrowser.o $(DEV)/src/usb_sd.o $(DEV)/src/input.o
+             $(DEV)/src/ui.o $(DEV)/src/widgets.o $(DEV)/src/filebrowser.o $(DEV)/src/usb_sd.o $(DEV)/src/input.o \
+             $(DEV)/src/help.o $(DEV)/src/image.o $(DEV)/src/md4c.o
 
 define device
 $(BIN)/$1: $(DEV_COMMON) $(DEV)/examples/$2.o | $(BIN)
@@ -89,11 +92,44 @@ $(eval $(call device,text-edit,text_edit))
 $(eval $(call device,diagnostics,diagnostics))
 $(eval $(call device,filebrowser,filebrowser))
 $(eval $(call device,usb-sd,usb_sd))
+$(eval $(call device,help,help))
+$(BIN)/help: $(DEV)/examples/help_pages.o
 
 # One autorun zip per example. The unpacked folder stays under build/pkg/<name>/.
 $(BIN)/%.zip: $(BIN)/% tools/pack-autorun.sh
 	tools/pack-autorun.sh --name $* --bin $< --out $(BUILD)/pkg/$*
 	cp $(BUILD)/pkg/$*/$*.zip $@
+
+HELP_SRC = $(shell find examples/help -type f ! -name '.*')
+build/help_pages.c: tools/embed-help.py $(HELP_SRC)
+	python3 tools/embed-help.py examples/help $@ help_pages
+
+$(HOST)/examples/help_pages.o: build/help_pages.c | $(HOST)/examples
+	$(HOSTCC) $(CFLAGS) -MMD -MP -c -o $@ $<
+
+$(TEST)/examples/help_pages.o: build/help_pages.c | $(TEST)/examples
+	$(TESTCC) $(CFLAGS) -fsanitize=address,undefined -MMD -MP -c -o $@ $<
+
+$(DEV)/examples/help_pages.o: build/help_pages.c | $(DEV)/examples
+	$(ZIGCC) $(ZIGCFLAGS) -MMD -MP -c -o $@ $<
+
+$(HOST)/src/image.o: src/image.c | $(HOST)/src
+	$(HOSTCC) $(CFLAGS) -I deps -w -MMD -MP -c -o $@ $<
+
+$(TEST)/src/image.o: src/image.c | $(TEST)/src
+	$(TESTCC) $(CFLAGS) -I deps -w -fsanitize=address,undefined -MMD -MP -c -o $@ $<
+
+$(DEV)/src/image.o: src/image.c | $(DEV)/src
+	$(ZIGCC) $(ZIGCFLAGS) -I deps -w -MMD -MP -c -o $@ $<
+
+$(HOST)/src/md4c.o: deps/md4c/src/md4c.c | $(HOST)/src
+	$(HOSTCC) $(CFLAGS) -Wno-unused-parameter -MMD -MP -c -o $@ $<
+
+$(TEST)/src/md4c.o: deps/md4c/src/md4c.c | $(TEST)/src
+	$(TESTCC) $(CFLAGS) -Wno-unused-parameter -fsanitize=address,undefined -MMD -MP -c -o $@ $<
+
+$(DEV)/src/md4c.o: deps/md4c/src/md4c.c | $(DEV)/src
+	$(ZIGCC) $(ZIGCFLAGS) -Wno-unused-parameter -MMD -MP -c -o $@ $<
 
 $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/examples $(BIN) $(BUILD)/shots:
 	mkdir -p $@
@@ -103,4 +139,4 @@ $(HOST)/src $(HOST)/examples $(TEST)/src $(TEST)/examples $(DEV)/src $(DEV)/exam
 clean:
 	rm -rf $(BUILD) $(BIN) \
 	       ui-test ui-test.dSYM preview-bin preview-bin.dSYM shots \
-	       clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser usb-sd *.dSYM
+	       clear boxes buttons highlight soft-keys knobs list pads anim sudoku text-edit diagnostics filebrowser usb-sd help *.dSYM

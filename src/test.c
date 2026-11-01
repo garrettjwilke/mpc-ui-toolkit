@@ -1,12 +1,14 @@
 // Host checks. No device, no DRM. Build: make test
 #include "input.h"
 #include "ui.h"
+#include "font.h"
 #include "widgets.h"
 #include "../examples/sudoku.h"
 #include "../examples/diagnostics.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 int clear_frame(struct ui *u, const struct input *in, void *state);
 int boxes_frame(struct ui *u, const struct input *in, void *state);
@@ -26,6 +28,8 @@ struct anim_state { int x; int dir; };
 int anim_frame(struct ui *u, const struct input *in, void *state);
 struct text_edit_state { char name[32]; struct ui_text_editor editor; int editing; const char *last_action; };
 int text_edit_frame(struct ui *u, const struct input *in, void *state);
+struct help_demo { struct ui_help help; int opened; char root[512]; };
+int help_frame(struct ui *u, const struct input *in, void *state);
 
 static int failed;
 
@@ -1308,6 +1312,377 @@ static void test_usb_sd(void) {
     expect(rc == UI_USB_SD_DONE, "a stopped session stays done");
 }
 
+static void write_text(const char *path, const char *text) {
+    FILE *f = fopen(path, "w");
+    expect(f != 0, path);
+    if (!f) return;
+    fputs(text, f);
+    fclose(f);
+}
+
+static void write_ppm(const char *path, int w, int h, uint32_t color) {
+    FILE *f = fopen(path, "wb");
+    int i;
+    expect(f != 0, path);
+    if (!f) return;
+    fprintf(f, "P6\n%d %d\n255\n", w, h);
+    for (i = 0; i < w * h; i++) {
+        unsigned char rgb[3] = {(unsigned char)((color >> 16) & 255), (unsigned char)((color >> 8) & 255), (unsigned char)(color & 255)};
+        fwrite(rgb, 1, 3, f);
+    }
+    fclose(f);
+}
+
+static int pad_led_is(const struct ui *u, int index, uint32_t color) {
+    int r = (int)((color >> 17) & 0x7f);
+    int g = (int)((color >> 9) & 0x7f);
+    int b = (int)((color >> 1) & 0x7f);
+    int i;
+    for (i = 0; i < u->nled; i++) {
+        if (u->led[i].index != (unsigned char)index) continue;
+        return u->led[i].r == (unsigned char)r && u->led[i].g == (unsigned char)g && u->led[i].b == (unsigned char)b;
+    }
+    return 0;
+}
+
+static int has_color(const struct ui *u, uint32_t color) {
+    int i;
+    for (i = 0; i < UI_W * UI_H; i++)
+        if (u->px[i] == color) return 1;
+    return 0;
+}
+
+static void test_help(void) {
+    static uint32_t buf[UI_W * UI_H];
+    static struct ui_help help;
+    struct ui u = {.px = buf};
+    struct ui_help_style st = ui_help_style_default();
+    struct input in;
+    const char *root = "build/help-fix/root";
+    int scrolled;
+    uint32_t kept;
+
+    mkdir("build", 0755);
+    mkdir("build/help-fix", 0755);
+    mkdir("build/help-fix/root", 0755);
+    mkdir("build/help-fix/root/sub", 0755);
+    mkdir("build/help-fix/root/shots", 0755);
+    write_text("build/help-fix/secret.md", "# Secret\n\nThis is outside the folder.\n");
+    write_ppm("build/help-fix/secret.ppm", 8, 8, 0xff00ff);
+    write_ppm("build/help-fix/root/shots/inside.ppm", 8, 8, 0x00ff00);
+    write_ppm("build/help-fix/root/shots/wide.ppm", 700, 2, 0x010203);
+    write_text("build/help-fix/root/next.md", "# Next\n\nYou followed the link.\n");
+    write_text("build/help-fix/root/one.md", "# One\n");
+    write_text("build/help-fix/root/two.md", "# Two\n");
+    write_text("build/help-fix/root/here.md", "# Here\n\nThis page is in the folder.\n");
+    write_text("build/help-fix/root/pick.md",
+               "# Pick\n\n[Gone](missing.md)\n\n[Here](here.md)\n\n[Also gone](nope.md)\n");
+    write_text("build/help-fix/root/three.md", "# Three\n\n[Alpha](one.md)\n\n[Beta](two.md)\n\n[Gamma](next.md)\n");
+    {
+        char body[1024];
+        char path[80];
+        int n = 0, k;
+        n += snprintf(body + n, sizeof body - (size_t)n, "# Many\n\n");
+        for (k = 1; k <= 13; k++)
+            n += snprintf(body + n, sizeof body - (size_t)n, "[L%d](t%02d.md)\n\n", k, k);
+        write_text("build/help-fix/root/many.md", body);
+        for (k = 1; k <= 13; k++) {
+            snprintf(path, sizeof path, "build/help-fix/root/t%02d.md", k);
+            snprintf(body, sizeof body, "# T%d\n\n", k);
+            write_text(path, body);
+        }
+    }
+    write_text("build/help-fix/root/sub/page.md", "# Nested\n\n[Up](../index.md)\n\n[Out](../../secret.md)\n");
+    write_text("build/help-fix/root/index.md",
+               "# Topics\n\n"
+               "[Out](../secret.md)\n\n"
+               "[Abs](/etc/passwd)\n\n"
+               "[Web](http://example.com)\n\n"
+               "[Ok](next.md)\n\n"
+               "[Nest](sub/page.md)\n");
+    write_text("build/help-fix/root/long.md",
+               "# Long\n\n"
+               "word word word word word word word word word word word word "
+               "word word word word word word word word word word word word "
+               "word word word word word word word word word word word word\n\n"
+               "[Next](next.md)\n");
+    write_text("build/help-fix/root/picture.md",
+               "# Picture\n\n"
+               "![in](shots/inside.ppm)\n\n"
+               "![out](../secret.ppm)\n\n"
+               "![wide](shots/wide.ppm)\n");
+    write_text("build/help-fix/root/choices.md", "# T\n\n[One](one.md)\n\n[Two](two.md)\n");
+    write_text("build/help-fix/root/code.md", "# Keys\n\nPress `B1` or:\n\n```\nB3\n```\n");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "../secret.md") != 0, "open rejects a start page outside the folder");
+    expect(ui_help_open(&help, root, "/etc/passwd") != 0, "open rejects an absolute start page");
+    expect(ui_help_open(&help, root, "index.md") == 0, "open the help folder");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    expect(ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in) == UI_HELP_ACTIVE, "help stays open");
+    expect(strcmp(ui_help_page(&help), "index.md") == 0, "start page is index");
+
+    kept = px(&u, 20, 40);
+    in = blank();
+    in.encoder = 5;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(ui_help_scroll(&help) == 0, "a page that fits does not scroll");
+    expect(px(&u, 20, 40) == kept, "scrolling a short page leaves it where it is");
+    expect(ui_help_link(&help) < 0, "the wheel does not highlight a link");
+    in = blank();
+    in.encoder_press = 1;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "index.md") == 0, "encoder press does not open a link");
+    in = blank();
+    in.pad_hit[0] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "index.md") == 0, "a pad without shift does not open a link");
+
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[0] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(ui_help_scroll(&help) == 0, "opening a link on a short page does not scroll first");
+    expect(strcmp(ui_help_page(&help), "next.md") == 0, "shift and pad 1 open the first link");
+    expect(strcmp(ui_help_page(&help), "secret.md") != 0, "a link cannot leave the folder");
+    expect(strstr(ui_help_page(&help), "passwd") == 0, "an absolute link is not a page");
+
+    in = blank();
+    in.down = 1u << IN_B1;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "index.md") == 0, "back returns to the previous page");
+    expect(ui_help_link(&help) >= 0, "back restores the highlighted link");
+    expect(ui_help_scroll(&help) == 0, "back restores the scroll");
+
+    in = blank();
+    in.down = 1u << IN_B1;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "index.md") == 0, "back at the start stays put");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "pick.md") == 0, "open a page that names a missing page");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[1] = 80;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "pick.md") == 0, "pad 2 does nothing when the page has one link");
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[0] = 80;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "here.md") == 0, "pad 1 opens the page that exists");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "sub/page.md") == 0, "open a nested page");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[0] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "index.md") == 0, "a nested page can link up to index");
+    expect(strcmp(ui_help_page(&help), "secret.md") != 0, "a nested relative link stays inside");
+
+    in = blank();
+    in.down = 1u << IN_B2;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "sub/page.md") == 0, "home loads the start page");
+    expect(ui_help_scroll(&help) == 0 && ui_help_link(&help) < 0, "home clears the scroll and the highlight");
+    in = blank();
+    in.down = 1u << IN_B1;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "sub/page.md") == 0, "home clears the back stack");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "long.md") == 0, "open a long page");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(ui_help_scroll(&help) == 0, "a long page starts at the top");
+    in = blank();
+    in.encoder = 1;
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(ui_help_scroll(&help) == FONT_S_H, "the wheel scrolls one line");
+    expect(ui_help_link(&help) < 0, "scrolling does not highlight a link");
+    scrolled = ui_help_scroll(&help);
+    in = blank();
+    in.shift = 1;
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(ui_help_scroll(&help) == scrolled, "shift alone leaves the page where it was scrolled");
+    expect(strcmp(ui_help_page(&help), "long.md") == 0, "shift does not open a link");
+    in = blank();
+    in.shift = 1;
+    in.encoder = 1;
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(ui_help_scroll(&help) == scrolled + 19, "shift and the wheel scroll half the window");
+    expect(ui_help_link(&help) < 0, "a fast scroll does not pick a link");
+    scrolled = ui_help_scroll(&help);
+    in = blank();
+    in.encoder = 100;
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(ui_help_scroll(&help) > scrolled, "the wheel keeps scrolling after a link is highlighted");
+    in = blank();
+    in.encoder = 100;
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(px(&u, 133, 60) == UI_HL, "the scrollbar thumb sits at the bottom");
+    expect(px(&u, 133, 30) != UI_HL, "the scrollbar top is the track");
+    scrolled = ui_help_scroll(&help);
+    in = blank();
+    in.down = 1u << IN_B2;
+    ui_help(&u, 0, 0, 140, 70, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "long.md") == 0, "home on a long page stays on that page");
+    expect(ui_help_scroll(&help) == 0, "home returns to the top");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "three.md") == 0, "open a page with three links");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    {
+        in = blank();
+        in.shift = 1;
+        ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+        expect(has_color(&u, 0xff0000), "pad 1 is drawn red");
+        expect(has_color(&u, 0x0000ff), "pad 3 is drawn blue");
+        expect(has_color(&u, 0xffffff), "pad numbers are white");
+        expect(has_color(&u, st.link), "the rest of the link stays its color");
+        expect(pad_led_is(&u, 0, 0xff0000), "pad 1 lights red");
+        expect(pad_led_is(&u, 1, 0x00ff00), "pad 2 lights green");
+        expect(pad_led_is(&u, 2, 0x0000ff), "pad 3 lights blue");
+        expect(pad_led_is(&u, 3, 0), "an unused pad stays dark");
+    }
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(pad_led_is(&u, 0, 0) && pad_led_is(&u, 2, 0), "letting go of shift turns the pads off");
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[3] = 90;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "three.md") == 0, "pad 4 is unused when the page has three links");
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[2] = 90;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "next.md") == 0, "pad 3 opens the third link");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "many.md") == 0, "open a page with thirteen links");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[0] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "many.md") == 0, "the first pad of a combo does not open yet");
+    {
+        int i, yellow = 0;
+        for (i = 0; i < u.nled; i++)
+            if (u.led[i].index == 3 && u.led[i].r == 127 && u.led[i].g == 36 && u.led[i].b == 0) yellow = 1;
+        expect(yellow, "pad 4 lights yellow with less green than red");
+    }
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[1] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "t01.md") == 0, "pads 1 then 2 open the first of many links");
+    in = blank();
+    in.down = 1u << IN_B1;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "many.md") == 0, "back returns from a pad combo");
+    expect(ui_help_scroll(&help) == 0, "back keeps the scroll instead of jumping");
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[0] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    in = blank();
+    in.shift = 1;
+    in.pad_hit[2] = 100;
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(strcmp(ui_help_page(&help), "t13.md") == 0, "pads 1 then 3 open the thirteenth link");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "picture.md") == 0, "open a page with pictures");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(has_color(&u, 0x00ff00), "a picture inside the folder is drawn");
+    expect(!has_color(&u, 0xff00ff), "a picture outside the folder is not drawn");
+    expect(!has_color(&u, 0x010203), "a picture larger than 640 by 480 is not drawn");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "code.md") == 0, "open a page with code");
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    expect(has_color(&u, st.code_fill), "fenced code draws a filled block");
+
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    expect(ui_help_open(&help, root, "choices.md") == 0, "open a dialogue page");
+    st.close = 0;
+    ui_clear(&u, UI_BG);
+    in = blank();
+    ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+    in = blank();
+    in.down = 1u << IN_B3;
+    expect(ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in) == UI_HELP_ACTIVE, "a missing close label stays open");
+    st.close = "Close";
+    in = blank();
+    in.down = 1u << IN_B3;
+    expect(ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in) == UI_HELP_CLOSED, "close leaves the window");
+    in = blank();
+    expect(ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in) == UI_HELP_CLOSED, "a closed window stays closed");
+    ui_help_close(&help);
+
+    ui_help_close(&help);
+    ui_help_close(&help);
+    memset(&help, 0, sizeof help);
+    {
+        static const char mem_index[] = "# Hi\n\n[Next](next.md)\n\n[Out](../secret.md)\n";
+        static const char mem_next[] = "# Next\n\nInside the program.\n";
+        static const struct ui_help_file mem_files[] = {
+            {"index.md", mem_index, (int)sizeof mem_index - 1},
+            {"next.md", mem_next, (int)sizeof mem_next - 1},
+        };
+        expect(ui_help_open_files(&help, mem_files, 2, "index.md") == 0, "open pages linked into the program");
+        ui_clear(&u, UI_BG);
+        in = blank();
+        ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+        in = blank();
+        in.shift = 1;
+        in.pad_hit[0] = 100;
+        ui_help(&u, 0, 0, UI_W, UI_H, &help, st, &in);
+        expect(strcmp(ui_help_page(&help), "next.md") == 0, "shift and pad 1 open a page compiled into the program");
+        expect(strcmp(ui_help_page(&help), "secret.md") != 0, "a baked-in link cannot leave the set");
+        ui_help_close(&help);
+    }
+
+    memset(&help, 0, sizeof help);
+    {
+        struct help_demo demo = {0};
+        in = blank();
+        ui_clear(&u, UI_BG);
+        help_frame(&u, &in, &demo);
+        expect(strcmp(ui_help_page(&demo.help), "index.md") == 0, "the example opens its pages");
+        expect(has_color(&u, 0x11aa44), "the example draws its screenshot");
+        ui_help_close(&demo.help);
+    }
+}
+
 int main(void) {
     test_parser();
     test_changes();
@@ -1328,6 +1703,7 @@ int main(void) {
     test_diagnostics();
     test_filebrowser();
     test_usb_sd();
+    test_help();
     if (failed) {
         fprintf(stderr, "%d check(s) failed\n", failed);
         return 1;

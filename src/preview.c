@@ -29,6 +29,8 @@ struct filebrowser_demo_state { struct ui_filebrowser fb; char last_selected[UI_
 int filebrowser_frame(struct ui *u, const struct input *in, void *state);
 struct usb_sd_demo_state { int open; struct ui_usb_sd usb; struct ui_list_state ls; };
 int usb_sd_frame(struct ui *u, const struct input *in, void *state);
+struct help_demo { struct ui_help help; int opened; char root[512]; };
+int help_frame(struct ui *u, const struct input *in, void *state);
 
 static int write_ppm(const char *path, const uint32_t *px) {
     FILE *f = fopen(path, "wb");
@@ -123,6 +125,9 @@ int main(void) {
     ui_usb_sd_init(&usb_sd.usb);
     ui_usb_sd_set_mock(1, 0);
     rc |= shot("usb-sd", usb_sd_frame, &usb_sd);
+
+    struct help_demo help_demo = {0};
+    rc |= shot("help", help_frame, &help_demo);
 
     uint32_t buf[UI_W * UI_H];
     struct ui u = {.px = buf};

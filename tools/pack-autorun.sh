@@ -14,7 +14,7 @@ SALT='f7bed1c9-7e90-4731-9194-c996666b4331'
 usage() {
   cat <<'EOF'
 Usage:
-  pack-autorun.sh --name NAME --bin FILE --out DIR [--add FILE]...
+  pack-autorun.sh --name NAME --bin FILE --out DIR [--add FILE]... [--add-dir DIR]
 
 --name NAME
   Package name. Letters, digits, dot, underscore, and hyphen.
@@ -28,12 +28,21 @@ Usage:
 
 --add FILE
   Copy one more file into autorun/ under its own name. Repeat for each file.
+
+--add-dir DIR
+  Copy a directory into autorun/ under its own name, keeping the folders inside it.
+
+--as NAME
+  Package name for the directory from --add-dir. Use this when that name would
+  match the program. Letters, digits, dot, underscore, and hyphen.
 EOF
 }
 
 NAME=
 BIN_PATH=
 OUT=
+ADD_DIR=
+AS_NAME=
 adds=$(mktemp)
 trap 'rm -f "$adds"' EXIT
 
@@ -62,6 +71,16 @@ while [ $# -gt 0 ]; do
       shift
       [ $# -ge 1 ] || { usage >&2; exit 1; }
       printf '%s\n' "$1" >> "$adds"
+      ;;
+    --add-dir)
+      shift
+      [ $# -ge 1 ] || { usage >&2; exit 1; }
+      ADD_DIR=$1
+      ;;
+    --as)
+      shift
+      [ $# -ge 1 ] || { usage >&2; exit 1; }
+      AS_NAME=$1
       ;;
     *)
       echo "ERROR: unknown argument: $1" >&2
@@ -231,6 +250,39 @@ while IFS= read -r extra; do
   cp "$extra" "$pkg/$base"
   printf '%s\n' "$base" >> "$extra_names"
 done < "$adds"
+
+if [ -n "$ADD_DIR" ]; then
+  if [ ! -d "$ADD_DIR" ]; then
+    echo "ERROR: --add-dir is not a directory: $ADD_DIR" >&2
+    exit 1
+  fi
+  if [ -n "$AS_NAME" ]; then
+    dir_base=$AS_NAME
+  else
+    dir_base=$(basename "$ADD_DIR")
+  fi
+  case "$dir_base" in
+    ''|.*|*/*|*[!A-Za-z0-9._-]*|autorun.json|autorun.sh|autorun.check|"$NAME")
+      echo "ERROR: refusing to add directory $dir_base" >&2
+      exit 1
+      ;;
+  esac
+  if [ -e "$pkg/$dir_base" ]; then
+    echo "ERROR: $dir_base is already in the package" >&2
+    exit 1
+  fi
+  mkdir -p "$pkg/$dir_base"
+  cp -R "$ADD_DIR"/. "$pkg/$dir_base"/
+  find "$pkg/$dir_base" -name '.DS_Store' -delete
+  find "$pkg/$dir_base" -type f | sort | while IFS= read -r extra; do
+    name=$(basename "$extra")
+    case "$name" in
+      .*|.DS_Store) continue ;;
+    esac
+    rel=${extra#"$pkg/"}
+    printf '%s\n' "$rel" >> "$extra_names"
+  done
+fi
 
 if command -v shasum >/dev/null 2>&1; then
   digest=$({ cat "$pkg/autorun.json" "$pkg/autorun.sh"; printf '%s' "$SALT"; } | shasum -a 256 | awk '{print $1}')
