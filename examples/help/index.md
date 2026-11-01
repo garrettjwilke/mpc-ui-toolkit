@@ -2,7 +2,7 @@
 
 Turn the wheel to scroll. Hold Shift to scroll faster, and to show a pad combo on each link. Press that combo while Shift is held. A name with no page is ordinary text and has no combo.
 
-![A small screen](shots/actions.ppm)
+![Birds](shots/birds.png)
 
 A passerine is a perching bird. The order is Passeriformes, and more than half of living bird species sit inside it. Sparrows, warblers, finches, thrushes, swallows, crows, and the tiny New Zealand wrens are all passerines, even when they look nothing like one another. What they share is a foot built for gripping a twig, and a voice box that, in the songbirds, can make two sounds at once.
 

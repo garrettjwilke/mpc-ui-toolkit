@@ -3,6 +3,7 @@
 #include "ui.h"
 #include "font.h"
 #include "widgets.h"
+#include "image.h"
 #include "../examples/sudoku.h"
 #include "../examples/diagnostics.h"
 #include <stdio.h>
@@ -1533,8 +1534,8 @@ static void test_help(void) {
     in = blank();
     in.encoder = 100;
     ui_help(&u, 0, 0, 140, 70, &help, st, &in);
-    expect(px(&u, 133, 60) == UI_HL, "the scrollbar thumb sits at the bottom");
-    expect(px(&u, 133, 30) != UI_HL, "the scrollbar top is the track");
+    expect(px(&u, 125, 60) == UI_HL, "the scrollbar thumb sits at the bottom");
+    expect(px(&u, 125, 30) != UI_HL, "the scrollbar top is the track");
     scrolled = ui_help_scroll(&help);
     in = blank();
     in.down = 1u << IN_B2;
@@ -1678,7 +1679,20 @@ static void test_help(void) {
         ui_clear(&u, UI_BG);
         help_frame(&u, &in, &demo);
         expect(strcmp(ui_help_page(&demo.help), "index.md") == 0, "the example opens its pages");
-        expect(has_color(&u, 0x11aa44), "the example draws its screenshot");
+        {
+            uint32_t *pic = 0;
+            int iw = 0, ih = 0, y, x, found = 0;
+            expect(image_decode("examples/help/shots/birds.png", &pic, &iw, &ih) == 0, "the example png decodes");
+            expect(iw == 100 && ih == 75, "the example png is 100 by 75");
+            if (pic && iw == 100 && ih == 75) {
+                for (y = 0; y < UI_H && !found; y++)
+                    for (x = 0; x + iw <= UI_W; x++)
+                        if (memcmp(buf + y * UI_W + x, pic + (ih / 2) * iw, (size_t)iw * sizeof(uint32_t)) == 0)
+                            found = 1;
+            }
+            expect(found, "the example draws its png");
+            free(pic);
+        }
         ui_help_close(&demo.help);
     }
 }

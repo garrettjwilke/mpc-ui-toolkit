@@ -19,6 +19,7 @@
 #define HINT_BOX_W (FONT_S_W + HINT_RIM * 2)
 #define HINT_BOX_H (FONT_S_H + HINT_RIM * 2)
 #define HELP_PAD_N 6
+#define HELP_SIDE 12
 #define HELP_PARA 1
 #define HELP_HEAD 2
 #define HELP_ITEM 3
@@ -1189,7 +1190,7 @@ static void draw_page(struct ui *u, int x, int y, int w, int h, struct ui_help *
     const char *labels[3];
     struct ui_soft_style soft;
     struct ui_paint bg;
-    if (w < 8 || h < soft_h + 4) return;
+    if (w < HELP_SIDE * 2 || h < soft_h + 4) return;
     bg.fill_set = 1;
     bg.fill = st.fill;
     bg.border_set = 0;
@@ -1206,9 +1207,9 @@ static void draw_page(struct ui *u, int x, int y, int w, int h, struct ui_help *
     soft.feedback = UI_SOFT_FLASH;
     soft.flash_ms = 120;
     ui_soft_keys(u, x, y, w, soft_h, labels, 0, soft, 0, &hp->keys);
-    body_x = x + 4;
+    body_x = x + HELP_SIDE;
     body_y = y + soft_h + 4;
-    body_w = w - 8;
+    body_w = w - HELP_SIDE * 2;
     body_h = h - soft_h - 8;
     if (!d || body_w < FONT_S_W || body_h < FONT_S_H) {
         draw_clip(u, body_x, body_y, "This help page could not be opened.", 35, st.text, body_x, body_y, body_x + body_w, body_y + body_h);
@@ -1383,7 +1384,7 @@ int ui_help(struct ui *u, int x, int y, int w, int h, struct ui_help *hp, struct
     struct ui_soft_style soft;
     if (!u || !hp) return UI_HELP_CLOSED;
     if (hp->closed) return UI_HELP_CLOSED;
-    body_w = w - 8;
+    body_w = w - HELP_SIDE * 2;
     body_h = h - soft_h - 8;
     d = hp->doc;
     if (d && hp->ready) ensure_layout(d, body_w, body_h);
