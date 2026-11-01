@@ -191,9 +191,10 @@ cat > "/run/$NAME-run.sh" <<'EOF'
 #!/bin/sh
 export MPC_APP_DIR="$1"
 name=$2
+from_menu=${3:-}
 # The boot menu has already stopped the stock app. On a plain card, wait
 # until that app is up, then take the screen. The script runner is not blocked.
-if [ ! -f /run/mpc-boot-thingy.pid ]; then
+if [ -z "$from_menu" ] && [ ! -f /run/mpc-boot-thingy.pid ]; then
   i=0
   while [ "$i" -lt 45 ]; do
     if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ac50.service; then
@@ -213,9 +214,13 @@ exit "$status"
 EOF
 chmod 755 "/run/$NAME-run.sh"
 
-# The boot menu waits on this script and takes the screen back when it exits.
-if [ -f /run/mpc-boot-thingy.pid ]; then
-  exec /bin/sh "/run/$NAME-run.sh" "$D" "$NAME"
+# Started from the boot menu: run in place. The menu may already have exited
+# and removed its pid file, so also check for its handoff unit. When the
+# program exits and the menu is gone, run.sh starts stock, which brings the
+# menu back.
+if [ -f /run/mpc-boot-thingy.pid ] || \
+   grep -q 'mpc-boot-autorun\.service' /proc/self/cgroup 2>/dev/null; then
+  exec /bin/sh "/run/$NAME-run.sh" "$D" "$NAME" menu
 fi
 
 # Stock runner: queue the program and return so the card finishes booting.
