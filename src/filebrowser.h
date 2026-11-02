@@ -119,6 +119,7 @@ struct ui_filebrowser_style {
     uint32_t border;         // Border color (0x3e4656)
     uint32_t cut_color;      // Dimmed text color for cut items (0x707888)
     uint32_t status_color;   // Success status banner (0x60e080)
+    uint32_t data_dir_color; // Highlight color for folders containing game data (0x60e080)
     uint32_t error_color;    // Error status banner (0xff5555)
     int row_h;               // Row height in pixels (default 21)
     int border_px;           // Border thickness (default 1)

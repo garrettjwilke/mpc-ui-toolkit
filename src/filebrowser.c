@@ -32,6 +32,7 @@ struct ui_filebrowser_style ui_filebrowser_style_default(void) {
         .border = 0x3e4656,
         .cut_color = 0x6e7684,
         .status_color = 0x60e080,
+        .data_dir_color = 0x60e080,
         .error_color = 0xff5555,
         .row_h = 21,
         .border_px = 1,
@@ -111,6 +112,28 @@ static int is_at_drive_root(const struct ui_filebrowser *fb, const char *path) {
         }
     }
     return 0;
+}
+
+static int fb_has_game_data(const char *path) {
+    if (!path || !path[0]) return 0;
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) return 0;
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        char full[UI_FB_MAX_PATH];
+        snprintf(full, sizeof(full), "%s/%s", path, e->d_name);
+        struct stat st2;
+        if (stat(full, &st2) == 0 && S_ISREG(st2.st_mode)) {
+            found = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return found;
 }
 
 static int ends_with_nocase(const char *str, const char *suffix) {
@@ -1310,8 +1333,17 @@ int ui_filebrowser(struct ui *u, int x, int y, int w, int h, struct ui_filebrows
                     ui_text(u, 38, text_y, "Parent Directory", is_cursor ? st.highlight : st.text_dim, 1);
                 }
             } else if (e->is_dir) {
-                ui_text(u, 8, text_y, "[DIR]", st.dir_color, 1);
-                ui_text(u, 44, text_y, e->name, is_cursor ? st.highlight : st.dir_color, 1);
+                char full[UI_FB_MAX_PATH];
+                path_combine(full, sizeof(full), fb->cwd, e->name);
+                int is_data = fb_has_game_data(full);
+                uint32_t data_color = st.data_dir_color ? st.data_dir_color : 0x60e080;
+                if (is_data) {
+                    ui_text(u, 8, text_y, "[DATA]", data_color, 1);
+                    ui_text(u, 44, text_y, e->name, is_cursor ? st.highlight : data_color, 1);
+                } else {
+                    ui_text(u, 8, text_y, "[DIR]", st.dir_color, 1);
+                    ui_text(u, 44, text_y, e->name, is_cursor ? st.highlight : st.dir_color, 1);
+                }
             } else {
                 uint32_t color = e->is_cut ? st.cut_color : (is_cursor ? st.highlight : st.text);
                 if (e->is_cut) {
