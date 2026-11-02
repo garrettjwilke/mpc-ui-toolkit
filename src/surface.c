@@ -172,8 +172,10 @@ void surface_all_off(struct surface *s) {
     if (s->fd < 0) return;
     for (int i = 0; i < IN_N; i++) led(s, INPUT_BUTTON_NOTE[i], 0);
     memset(s->last_button, 0, sizeof s->last_button);
-    s->pad_valid = 0;
-    for (int i = 0; i < 16; i++) surface_pad(s, i, 0, 0, 0);
+    for (int i = 0; i < 16; i++) {
+      s->pad_valid = 0;
+      surface_pad(s, i, 0, 0, 0);
+    }
     surface_meter(s, 0, 0);
     surface_track_led(s, -1);
     send_ch16_meter_power(s->fd, 0);
