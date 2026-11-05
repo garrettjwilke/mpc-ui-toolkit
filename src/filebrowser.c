@@ -823,7 +823,8 @@ static void draw_top_soft_keys(struct ui *u, int shift, const struct ui_filebrow
     int at_top_level = (fb->cwd[0] == '\0');
 
     const char *b1_text = (fb->options & UI_FB_OPT_BACK) ? "BACK"
-        : (shift ? ((!at_top_level && (fb->options & UI_FB_OPT_MKDIR)) ? "NEW FOLDER" : "")
+        : (shift ? ((!at_top_level && (fb->options & UI_FB_OPT_SET_DEFAULT)) ? "SET DEFAULT"
+                   : ((!at_top_level && (fb->options & UI_FB_OPT_MKDIR)) ? "NEW FOLDER" : ""))
                  : (at_top_level ? "EXIT" : "UP (..)"));
     const char *b2_text = shift ? ((!at_top_level && (fb->options & UI_FB_OPT_PASTE) && fb->clip_op != UI_FB_CLIP_NONE) ? "PASTE" : (at_top_level ? "" : "ACTIONS"))
                                 : (at_top_level ? "" : (fb->clip_op != UI_FB_CLIP_NONE ? "ACTIONS (*)" : "ACTIONS"));
@@ -1156,13 +1157,17 @@ int ui_filebrowser(struct ui *u, int x, int y, int w, int h, struct ui_filebrows
         if (input_down(in, IN_MINUS) && fb->cursor > 0) fb->cursor--;
         if (input_down(in, IN_PLUS) && fb->cursor + 1 < fb->count) fb->cursor++;
 
-        // Soft Key B1: BACK, or UP / EXIT
+        // Soft Key B1: BACK, or UP / EXIT (or Shift: SET DEFAULT / MKDIR)
         if (input_down(in, IN_B1)) {
             if (fb->options & UI_FB_OPT_BACK) {
                 return UI_FB_CANCEL;
             }
             if (shift) {
-                if (fb->cwd[0] != '\0' && (fb->options & UI_FB_OPT_MKDIR)) {
+                if (fb->cwd[0] != '\0' && (fb->options & UI_FB_OPT_SET_DEFAULT)) {
+                    snprintf(fb->status_msg, sizeof fb->status_msg, "Default folder set");
+                    fb->status_is_error = 0;
+                    return UI_FB_SET_DEFAULT;
+                } else if (fb->cwd[0] != '\0' && (fb->options & UI_FB_OPT_MKDIR)) {
                     snprintf(fb->edit_buf, sizeof fb->edit_buf, "New_Folder");
                     ui_text_editor_init(&fb->editor, fb->edit_buf, sizeof fb->edit_buf, "NEW FOLDER NAME");
                     fb->state = UI_FB_STATE_MKDIR;

@@ -48,7 +48,7 @@ int surface_open(struct surface *s) {
     s->last_right_meter = 0;
     s->last_track_mask = 0;
     memset(s->last_button, 0, sizeof s->last_button);
-    memset(s->last_pad, 0, sizeof s->last_pad);
+    memset(s->last_pad, 0xff, sizeof s->last_pad);
     s->pad_valid = 0;
     int card = card_number();
     if (card < 0) {
@@ -63,6 +63,9 @@ int surface_open(struct surface *s) {
         return -1;
     }
     send_ch16_meter_power(s->fd, 1);
+    for (int p = 0; p < 16; p++) {
+        surface_pad(s, p, 0, 0, 0);
+    }
     return 0;
 }
 
@@ -71,7 +74,7 @@ void surface_pad(struct surface *s, int pad, int r, int g, int b) {
     unsigned char ur = (unsigned char)(r & 0x7f);
     unsigned char ug = (unsigned char)(g & 0x7f);
     unsigned char ub = (unsigned char)(b & 0x7f);
-    if (s->pad_valid && s->last_pad[pad][0] == ur &&
+    if (s->last_pad[pad][0] == ur &&
         s->last_pad[pad][1] == ug &&
         s->last_pad[pad][2] == ub) {
         return;
@@ -173,8 +176,8 @@ void surface_all_off(struct surface *s) {
     for (int i = 0; i < IN_N; i++) led(s, INPUT_BUTTON_NOTE[i], 0);
     memset(s->last_button, 0, sizeof s->last_button);
     for (int i = 0; i < 16; i++) {
-      s->pad_valid = 0;
-      surface_pad(s, i, 0, 0, 0);
+        s->last_pad[i][0] = 0xff;
+        surface_pad(s, i, 0, 0, 0);
     }
     surface_meter(s, 0, 0);
     surface_track_led(s, -1);
@@ -183,9 +186,7 @@ void surface_all_off(struct surface *s) {
 
 void surface_close(struct surface *s) {
     if (s->fd >= 0) {
-        surface_meter(s, 0, 0);
-        surface_track_led(s, -1);
-        send_ch16_meter_power(s->fd, 0);
+        surface_all_off(s);
         close(s->fd);
     }
     s->fd = -1;
