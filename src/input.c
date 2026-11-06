@@ -74,17 +74,14 @@ void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]) 
             if (d) d->knob[k] = v;
             f->knob_moved[k] = 1;
             f->knob[k] = v;
-            f->knob_pos[k] = v;
         } else if (d1 == 19) {
             if (d) d->main = v;
             f->main_moved = 1;
             f->main = v;
-            f->main_pos = v;
         } else if (d1 == 20) {
             if (d) d->fader = v;
             f->fader_moved = 1;
             f->fader = v;
-            f->fader_pos = v;
         } else if (d1 == 100) {
             if (v == 1) f->encoder += 1;
             else if (v == 0x7f) f->encoder -= 1;
