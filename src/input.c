@@ -52,7 +52,7 @@ void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]) 
             f->pad_at[i] = d2;
             return;
         }
-        int down = st == 0x90 && d2 > 0;
+        int down = st == 0x90 && d2 >= 4;
         if (down) {
             if (d) d->pad_down[i] = 1, d->pad_vel[i] = d2;
             f->pad_hit[i] = d2;
