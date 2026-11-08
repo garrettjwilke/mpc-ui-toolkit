@@ -1062,3 +1062,355 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
 
     return status;
 }
+
+/* ---- New control widgets: checkboxes, radio buttons, sliders ---- */
+
+static void draw_line_px(struct ui *u, int x0, int y0, int x1, int y1, uint32_t color) {
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    int dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    int sx = x0 < x1 ? 1 : -1;
+    int sy = y0 < y1 ? 1 : -1;
+    int err = dx - dy;
+    for (;;) {
+        if (x0 >= 0 && x0 < UI_W && y0 >= 0 && y0 < UI_H) u->px[y0 * UI_W + x0] = color;
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = err * 2;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+    }
+}
+
+static void draw_circle_px(struct ui *u, int cx, int cy, int r, uint32_t color, int fill) {
+    if (r < 1) return;
+    for (int dy = -r; dy <= r; dy++) {
+        for (int dx = -r; dx <= r; dx++) {
+            int d2 = dx * dx + dy * dy;
+            int in = fill ? (d2 <= r * r) : (d2 <= r * r && d2 >= (r - 1) * (r - 1));
+            if (in) {
+                int px = cx + dx, py = cy + dy;
+                if (px >= 0 && px < UI_W && py >= 0 && py < UI_H) u->px[py * UI_W + px] = color;
+            }
+        }
+    }
+}
+
+static void draw_checkmark(struct ui *u, int x, int y, int size, uint32_t color) {
+    int x0 = x + 2;
+    int y0 = y + size / 2;
+    int x1 = x + size / 3;
+    int y1 = y + size - 3;
+    int x2 = x + size - 2;
+    int y2 = y + 2;
+    draw_line_px(u, x0, y0, x1, y1, color);
+    draw_line_px(u, x1, y1, x2, y2, color);
+    draw_line_px(u, x0, y0 + 1, x1, y1 + 1, color);
+    draw_line_px(u, x1, y1 + 1, x2, y2 + 1, color);
+}
+
+int ui_checkbox(struct ui *u, int x, int y, int w, int h, const char *label, int *value,
+                struct ui_checkbox_style st, int focused, const struct input *in) {
+    if (!u || !value) return 0;
+    int bs = st.box_size > 0 ? st.box_size : 12;
+    int gap = st.gap > 0 ? st.gap : 6;
+    int row_h = st.row_h > 0 ? st.row_h : (h > 0 ? h : (FONT_S_H + 4));
+    if (row_h < bs) row_h = bs + 2;
+    uint32_t box_c = st.box ? st.box : UI_BOX;
+    uint32_t check_c = st.check ? st.check : UI_HL;
+    uint32_t text_c = st.text ? st.text : UI_TEXT;
+    uint32_t hl_c = st.highlight ? st.highlight : UI_HL;
+    uint32_t fill_c = st.fill ? st.fill : 0x223040;
+
+    int changed = 0;
+    if (focused && in && !in->shift) {
+        if (in->encoder_press || input_down(in, IN_PLUS) || input_down(in, IN_MINUS)) {
+            *value = !*value;
+            changed = 1;
+        }
+    }
+
+    if (focused) fill_row(u, x, y, w, row_h, fill_c);
+
+    int by = y + (row_h - bs) / 2;
+    int bx = x + 4;
+    struct ui_paint bp = {.fill_set = 1, .fill = 0x161a22,
+                          .border_set = 1, .border = focused ? hl_c : box_c, .border_px = focused ? 2 : 1};
+    ui_box(u, bx, by, bs, bs, bp);
+    if (*value) draw_checkmark(u, bx, by, bs, check_c);
+
+    int ty = y + (row_h - FONT_S_H) / 2;
+    ui_text(u, bx + bs + gap, ty, label ? label : "", focused ? hl_c : text_c, 1);
+    if (focused) ui_highlight(u, x, y, w, row_h, hl_c, 1);
+    return changed;
+}
+
+int ui_checkboxes(struct ui *u, int x, int y, int w, int h, const char **labels, int *values, int n,
+                  struct ui_checkbox_style st, const struct input *in, struct ui_checkbox_state *cs) {
+    if (!u || !cs) return -1;
+    if (n < 0) n = 0;
+    if (n == 0) { cs->cursor = 0; return -1; }
+    if (cs->cursor < 0 || cs->cursor >= n) cs->cursor = 0;
+
+    int bs = st.box_size > 0 ? st.box_size : 12;
+    int gap = st.gap > 0 ? st.gap : 6;
+    int row_h = st.row_h > 0 ? st.row_h : (FONT_S_H + 4);
+    if (row_h < bs + 2) row_h = bs + 2;
+    uint32_t box_c = st.box ? st.box : UI_BOX;
+    uint32_t check_c = st.check ? st.check : UI_HL;
+    uint32_t text_c = st.text ? st.text : UI_TEXT;
+    uint32_t hl_c = st.highlight ? st.highlight : UI_HL;
+    uint32_t fill_c = st.fill ? st.fill : 0x223040;
+
+    int changed = -1;
+    if (in) {
+        if (in->encoder) cs->cursor = wrap(cs->cursor + in->encoder, n);
+        if (input_down(in, IN_PLUS)) cs->cursor = wrap(cs->cursor + 1, n);
+        if (input_down(in, IN_MINUS)) cs->cursor = wrap(cs->cursor - 1 + n, n);
+        if (in->encoder_press && !in->shift && values) {
+            values[cs->cursor] = !values[cs->cursor];
+            changed = cs->cursor;
+        }
+    }
+
+    int visible = h / row_h;
+    if (visible < 1) visible = 1;
+    int first = 0;
+    if (cs->cursor >= visible) first = cs->cursor - visible + 1;
+    int reserve = scroll_reserve(w, h, visible, n);
+    int row_w = w - reserve;
+
+    for (int i = first; i < n && i < first + visible; i++) {
+        int yy = y + (i - first) * row_h;
+        int focused = (i == cs->cursor);
+        if (focused) fill_row(u, x, yy, row_w, row_h, fill_c);
+
+        int by = yy + (row_h - bs) / 2;
+        int bx = x + 4;
+        struct ui_paint bp = {.fill_set = 1, .fill = 0x161a22,
+                              .border_set = 1, .border = focused ? hl_c : box_c,
+                              .border_px = focused ? 2 : 1};
+        ui_box(u, bx, by, bs, bs, bp);
+        if (values && values[i]) draw_checkmark(u, bx, by, bs, check_c);
+
+        int ty = yy + (row_h - FONT_S_H) / 2;
+        ui_text(u, bx + bs + gap, ty, labels && labels[i] ? labels[i] : "", focused ? hl_c : text_c, 1);
+        if (focused) ui_highlight(u, x, yy, row_w, row_h, hl_c, 1);
+    }
+    scroll_bar(u, x, y, w, h, first, visible, n, hl_c);
+    return changed;
+}
+
+int ui_radio(struct ui *u, int x, int y, int w, int h, const char *label, int *selected, int option_value,
+             struct ui_radio_style st, int focused, const struct input *in) {
+    if (!u || !selected) return 0;
+    int size = st.size > 0 ? st.size : 12;
+    int gap = st.gap > 0 ? st.gap : 6;
+    int row_h = st.row_h > 0 ? st.row_h : (h > 0 ? h : (FONT_S_H + 4));
+    if (row_h < size + 2) row_h = size + 2;
+    uint32_t ring_c = st.ring ? st.ring : UI_BOX;
+    uint32_t dot_c = st.dot ? st.dot : UI_HL;
+    uint32_t text_c = st.text ? st.text : UI_TEXT;
+    uint32_t hl_c = st.highlight ? st.highlight : UI_HL;
+    uint32_t fill_c = st.fill ? st.fill : 0x223040;
+
+    int changed = 0;
+    if (focused && in && !in->shift) {
+        if (in->encoder_press || input_down(in, IN_PLUS) || input_down(in, IN_MINUS)) {
+            if (*selected != option_value) { *selected = option_value; changed = 1; }
+        }
+    }
+
+    if (focused) fill_row(u, x, y, w, row_h, fill_c);
+
+    int r = size / 2;
+    int cx = x + 4 + r;
+    int cy = y + row_h / 2;
+    draw_circle_px(u, cx, cy, r, focused ? hl_c : ring_c, 0);
+    if (*selected == option_value) draw_circle_px(u, cx, cy, r > 2 ? r - 3 : 1, dot_c, 1);
+
+    int ty = y + (row_h - FONT_S_H) / 2;
+    ui_text(u, cx + r + gap, ty, label ? label : "", focused ? hl_c : text_c, 1);
+    if (focused) ui_highlight(u, x, y, w, row_h, hl_c, 1);
+    return changed;
+}
+
+int ui_radios(struct ui *u, int x, int y, int w, int h, const char **labels, int *selected, int n,
+              struct ui_radio_style st, const struct input *in, struct ui_radio_state *rs) {
+    if (!u || !rs) return -1;
+    if (n < 0) n = 0;
+    if (n == 0) { rs->cursor = 0; rs->selected = (selected ? *selected : 0); return -1; }
+    if (rs->cursor < 0 || rs->cursor >= n) rs->cursor = 0;
+    if (selected) {
+        if (*selected < 0 || *selected >= n) *selected = 0;
+        rs->selected = *selected;
+    }
+
+    int size = st.size > 0 ? st.size : 12;
+    int gap = st.gap > 0 ? st.gap : 6;
+    int row_h = st.row_h > 0 ? st.row_h : (FONT_S_H + 4);
+    if (row_h < size + 2) row_h = size + 2;
+    uint32_t ring_c = st.ring ? st.ring : UI_BOX;
+    uint32_t dot_c = st.dot ? st.dot : UI_HL;
+    uint32_t text_c = st.text ? st.text : UI_TEXT;
+    uint32_t hl_c = st.highlight ? st.highlight : UI_HL;
+    uint32_t fill_c = st.fill ? st.fill : 0x223040;
+
+    int changed_index = -1;
+    if (in) {
+        if (in->encoder) rs->cursor = wrap(rs->cursor + in->encoder, n);
+        if (input_down(in, IN_PLUS)) rs->cursor = wrap(rs->cursor + 1, n);
+        if (input_down(in, IN_MINUS)) rs->cursor = wrap(rs->cursor - 1 + n, n);
+        if (in->encoder_press && !in->shift) {
+            rs->selected = rs->cursor;
+            if (selected) *selected = rs->selected;
+            changed_index = rs->selected;
+        }
+    }
+    if (selected) rs->selected = *selected;
+
+    int visible = h / row_h;
+    if (visible < 1) visible = 1;
+    int first = 0;
+    if (rs->cursor >= visible) first = rs->cursor - visible + 1;
+    int reserve = scroll_reserve(w, h, visible, n);
+    int row_w = w - reserve;
+
+    for (int i = first; i < n && i < first + visible; i++) {
+        int yy = y + (i - first) * row_h;
+        int focused = (i == rs->cursor);
+        if (focused) fill_row(u, x, yy, row_w, row_h, fill_c);
+
+        int r = size / 2;
+        int cx = x + 4 + r;
+        int cy = yy + row_h / 2;
+        int is_sel = (i == rs->selected);
+        draw_circle_px(u, cx, cy, r, focused ? hl_c : (is_sel ? dot_c : ring_c), 0);
+        if (is_sel) draw_circle_px(u, cx, cy, r > 2 ? r - 3 : 1, dot_c, 1);
+
+        int ty = yy + (row_h - FONT_S_H) / 2;
+        ui_text(u, cx + r + gap, ty, labels && labels[i] ? labels[i] : "", focused ? hl_c : text_c, 1);
+        if (focused) ui_highlight(u, x, yy, row_w, row_h, hl_c, 1);
+    }
+    scroll_bar(u, x, y, w, h, first, visible, n, hl_c);
+    return changed_index;
+}
+
+int ui_slider(struct ui *u, int x, int y, int w, int h, const char *label, float *value,
+              struct ui_slider_style st, int focused, const struct input *in) {
+    if (!u || !value) return 0;
+    float step = st.step > 0 ? st.step : 0.05f;
+    if (*value < 0) *value = 0;
+    if (*value > 1) *value = 1;
+    uint32_t track_c = st.track ? st.track : UI_BOX;
+    uint32_t knob_c = st.knob ? st.knob : UI_HL;
+    uint32_t text_c = st.text ? st.text : UI_TEXT;
+    uint32_t hl_c = st.highlight ? st.highlight : UI_HL;
+    int track_h = st.track_h > 0 ? st.track_h : 6;
+    int knob_w = st.knob_w > 0 ? st.knob_w : 8;
+
+    int changed = 0;
+    if (focused && in) {
+        if (in->encoder) { *value += in->encoder * step; changed = 1; }
+        if (input_down(in, IN_PLUS)) { *value += step; changed = 1; }
+        if (input_down(in, IN_MINUS)) { *value -= step; changed = 1; }
+        if (*value < 0) *value = 0;
+        if (*value > 1) *value = 1;
+    }
+
+    int label_h = 0;
+    if (label && label[0]) {
+        ui_text(u, x, y, label, focused ? hl_c : text_c, 1);
+        label_h = FONT_S_H + 4;
+    }
+    int ty = y + label_h + (h - label_h - track_h) / 2;
+    if (ty < y + label_h) ty = y + label_h;
+
+    struct ui_paint tp = {.fill_set = 1, .fill = track_c};
+    ui_box(u, x, ty, w, track_h, tp);
+    int fill_w = (int)(*value * (float)w);
+    if (fill_w < 0) fill_w = 0;
+    if (fill_w > w) fill_w = w;
+    struct ui_paint fp = {.fill_set = 1, .fill = focused ? hl_c : knob_c};
+    ui_box(u, x, ty, fill_w, track_h, fp);
+
+    int kx = x + (int)(*value * (float)(w - knob_w));
+    if (kx < x) kx = x;
+    if (kx > x + w - knob_w) kx = x + w - knob_w;
+    struct ui_paint kp = {.fill_set = 1, .fill = knob_c,
+                          .border_set = st.border_px > 0 ? 1 : 0, .border = hl_c, .border_px = st.border_px > 0 ? st.border_px : 0};
+    ui_box(u, kx, ty - 2, knob_w, track_h + 4, kp);
+
+    if (st.show_value) {
+        char buf[16];
+        snprintf(buf, sizeof buf, "%d%%", (int)(*value * 100.0f + 0.5f));
+        ui_text(u, x + w + 4, ty - 2, buf, text_c, 1);
+    }
+    if (focused) ui_highlight(u, x, y, w, h, hl_c, 1);
+    return changed;
+}
+
+int ui_sliders(struct ui *u, int x, int y, int w, int h, const char **labels, float *values, int n,
+               struct ui_slider_style st, const struct input *in, struct ui_slider_state *ss) {
+    if (!u || !ss) return -1;
+    if (n < 0) n = 0;
+    if (n == 0) { ss->focus = 0; return -1; }
+    if (ss->focus < 0 || ss->focus >= n) ss->focus = 0;
+
+    int changed = -1;
+    float step = st.step > 0 ? st.step : 0.05f;
+    if (in) {
+        if (n > 1 && in->encoder) ss->focus = wrap(ss->focus + in->encoder, n);
+        if (input_down(in, IN_PLUS) && values) { values[ss->focus] += step; changed = ss->focus; }
+        if (input_down(in, IN_MINUS) && values) { values[ss->focus] -= step; changed = ss->focus; }
+        if (values) {
+            if (values[ss->focus] < 0) values[ss->focus] = 0;
+            if (values[ss->focus] > 1) values[ss->focus] = 1;
+        }
+    }
+
+    int row_h = FONT_S_H + 8;
+    if (n > 0 && h / n > row_h) row_h = h / n;
+    int track_h = st.track_h > 0 ? st.track_h : 6;
+    int knob_w = st.knob_w > 0 ? st.knob_w : 8;
+    uint32_t track_c = st.track ? st.track : UI_BOX;
+    uint32_t knob_c = st.knob ? st.knob : UI_HL;
+    uint32_t text_c = st.text ? st.text : UI_TEXT;
+    uint32_t hl_c = st.highlight ? st.highlight : UI_HL;
+
+    for (int i = 0; i < n; i++) {
+        int yy = y + i * row_h;
+        int focused = (i == ss->focus);
+        if (values) {
+            if (values[i] < 0) values[i] = 0;
+            if (values[i] > 1) values[i] = 1;
+        }
+        float v = values ? values[i] : 0;
+        if (labels && labels[i]) ui_text(u, x, yy, labels[i], focused ? hl_c : text_c, 1);
+        int tx = x + 80;
+        int tw = w - 80;
+        if (tw < 20) { tx = x; tw = w; }
+        int ty = yy + FONT_S_H + 2;
+        struct ui_paint tp = {.fill_set = 1, .fill = track_c};
+        ui_box(u, tx, ty, tw, track_h, tp);
+        int fill_w = (int)(v * (float)tw);
+        if (fill_w < 0) fill_w = 0;
+        if (fill_w > tw) fill_w = tw;
+        struct ui_paint fp = {.fill_set = 1, .fill = focused ? hl_c : knob_c};
+        ui_box(u, tx, ty, fill_w, track_h, fp);
+        int kx = tx + (int)(v * (float)(tw - knob_w));
+        if (kx < tx) kx = tx;
+        if (kx > tx + tw - knob_w) kx = tx + tw - knob_w;
+        struct ui_paint kp = {.fill_set = 1, .fill = knob_c};
+        ui_box(u, kx, ty - 2, knob_w, track_h + 4, kp);
+        if (focused) ui_highlight(u, tx, ty - 2, tw, track_h + 4, hl_c, 1);
+    }
+    return changed;
+}
+
+#define ui_checkbox_list ui_checkboxes
+#define ui_checkbox_group ui_checkboxes
+#define ui_radio_list ui_radios
+#define ui_radio_group ui_radios
+#define ui_slider_list ui_sliders
+#define ui_slider_group ui_sliders
+#define ui_toggle ui_checkbox
+#define ui_switch ui_checkbox

@@ -61,6 +61,68 @@ struct ui_list_state {
 int ui_list(struct ui *u, int x, int y, int w, int h, const char **rows, int n, struct ui_list_style st,
             const struct input *in, struct ui_list_state *ls);
 
+/* Checkbox: a square indicator with a check mark when *value is true.
+   Single controls: focused selects the row; encoder press (or Plus/Minus)
+   toggles *value. Returns 1 when the value changed this frame. */
+struct ui_checkbox_style {
+    uint32_t box, check, text, highlight, fill;
+    int box_size;   // square side in pixels. 0 means 12.
+    int gap;        // space between box and label. 0 means 6.
+    int row_h;      // row height. 0 means FONT_S_H + 4.
+};
+
+struct ui_checkbox_state {
+    int cursor;
+};
+
+int ui_checkbox(struct ui *u, int x, int y, int w, int h, const char *label, int *value,
+                struct ui_checkbox_style st, int focused, const struct input *in);
+
+int ui_checkboxes(struct ui *u, int x, int y, int w, int h, const char **labels, int *values, int n,
+                  struct ui_checkbox_style st, const struct input *in, struct ui_checkbox_state *cs);
+
+/* Radio button: a circular indicator filled when *selected == option_value.
+   Single controls toggle *selected to option_value when focused and activated. */
+struct ui_radio_style {
+    uint32_t ring, dot, text, highlight, fill;
+    int size;       // diameter in pixels. 0 means 12.
+    int gap;
+    int row_h;
+};
+
+struct ui_radio_state {
+    int cursor;
+    int selected;
+};
+
+int ui_radio(struct ui *u, int x, int y, int w, int h, const char *label, int *selected, int option_value,
+             struct ui_radio_style st, int focused, const struct input *in);
+
+int ui_radios(struct ui *u, int x, int y, int w, int h, const char **labels, int *selected, int n,
+              struct ui_radio_style st, const struct input *in, struct ui_radio_state *rs);
+
+/* Slider: a horizontal track with a draggable knob and an optional value label.
+   Single controls adjust *value (0..1) when focused. Group controls keep their
+   own focus index in ss->focus. */
+struct ui_slider_style {
+    uint32_t track, knob, text, highlight, fill, border;
+    int track_h;    // track height. 0 means 6.
+    int knob_w;     // knob width. 0 means 8.
+    int border_px;
+    float step;     // change per Plus/Minus. 0 means 0.05.
+    int show_value; // 1 draws the value as a percent.
+};
+
+struct ui_slider_state {
+    int focus;
+};
+
+int ui_slider(struct ui *u, int x, int y, int w, int h, const char *label, float *value,
+              struct ui_slider_style st, int focused, const struct input *in);
+
+int ui_sliders(struct ui *u, int x, int y, int w, int h, const char **labels, float *values, int n,
+               struct ui_slider_style st, const struct input *in, struct ui_slider_state *ss);
+
 struct ui_pad_style {
     int gap, border_px;
     uint32_t border;
