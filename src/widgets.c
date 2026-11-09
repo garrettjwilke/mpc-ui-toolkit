@@ -622,6 +622,46 @@ static const char *const PAD_MAP_SHIFT[16] = {
     ""       // Pad 16 (ACCEPT action)
 };
 
+// T9 phone keypad layout (multi-tap, no prediction)
+// 3x3 block on pads 1-3 / 5-7 / 9-11, abc on pad 10
+static const char *const T9_NORMAL[16] = {
+    "pqrs",  // Pad 1  (7)
+    "tuv",   // Pad 2  (8)
+    "wxyz",  // Pad 3  (9)
+    "",      // Pad 4
+    "ghi",   // Pad 5  (4)
+    "jkl",   // Pad 6  (5)
+    "mno",   // Pad 7  (6)
+    "",      // Pad 8
+    "_-. ",  // Pad 9  (1: punctuation)
+    "abc",   // Pad 10 (2)
+    "def",   // Pad 11 (3)
+    "",      // Pad 12 (DEL action)
+    "",      // Pad 13
+    " ",     // Pad 14 (0: space)
+    "",      // Pad 15 (ACCEPT)
+    ""       // Pad 16
+};
+
+static const char *const T9_SHIFT[16] = {
+    "PQRS",  // Pad 1
+    "TUV",   // Pad 2
+    "WXYZ",  // Pad 3
+    "",      // Pad 4
+    "GHI",   // Pad 5
+    "JKL",   // Pad 6
+    "MNO",   // Pad 7
+    "",      // Pad 8
+    "+=~|",  // Pad 9
+    "ABC",   // Pad 10
+    "DEF",   // Pad 11
+    "",      // Pad 12 (CLR action)
+    "",      // Pad 13
+    " ",     // Pad 14
+    "",      // Pad 15 (ACCEPT)
+    ""       // Pad 16
+};
+
 static const char *const PAD_MAP_NORMAL_SAFE[16] = {
     "abc",   // Pad 1
     "def",   // Pad 2
@@ -686,6 +726,10 @@ static void ui_text_editor_init_base(struct ui_text_editor *ed, char *buf, int m
         memcpy(ed->undo_buf, buf, (size_t)ed->max_len);
     }
     ed->undo_magic = 0x554e444fU;
+    ed->t9 = 0;
+    ed->t9_mode = 0;
+    ed->t9_enabled = 0;
+    ed->predictive = 0;
     // Special characters disabled by default
     ed->special_chars = allow_special;
     ed->allow_special = allow_special;
@@ -723,6 +767,19 @@ void ui_text_editor_set_special(struct ui_text_editor *ed, int allow_special) {
     ed->allow_symbols = v;
     ed->enable_symbols = v;
 }
+
+static void ui_text_editor_deinit_base(struct ui_text_editor *ed) {
+    if (!ed) return;
+    if (ed->undo_magic == 0x554e444fU && ed->undo_buf) {
+        free(ed->undo_buf);
+    }
+    ed->undo_buf = NULL;
+    ed->undo_magic = 0;
+}
+
+void ui_text_editor_deinit(struct ui_text_editor *ed) { ui_text_editor_deinit_base(ed); }
+void ui_text_editor_free(struct ui_text_editor *ed) { ui_text_editor_deinit_base(ed); }
+void ui_text_editor_destroy(struct ui_text_editor *ed) { ui_text_editor_deinit_base(ed); }
 
 struct ui_text_editor_style ui_text_editor_style_default(void) {
     struct ui_text_editor_style st = {
@@ -876,7 +933,12 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         } else {
             if (input_down(in, IN_B1)) status = UI_TEXT_CANCEL;
             if (input_down(in, IN_B2)) {
-                // B2 intentionally does nothing (space available on pad grid)
+                // B2 toggles T9 predictive text mode
+                int new_val = !(ed->t9 || ed->t9_mode || ed->t9_enabled || ed->predictive);
+                ed->t9 = new_val;
+                ed->t9_mode = new_val;
+                ed->t9_enabled = new_val;
+                ed->predictive = new_val;
             }
             if (input_down(in, IN_B3)) status = UI_TEXT_OK;
         }
@@ -963,8 +1025,10 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
             } else {
                 // Character pad (Pads 1..14)
                 int allow_special = ed->special_chars || ed->allow_special || ed->allow_special_chars || ed->enable_special || ed->enable_special_chars || ed->special || ed->specials || ed->allow_symbols || ed->enable_symbols || st.special_chars || st.allow_special || st.allow_special_chars || st.enable_special || st.enable_special_chars || st.special || st.specials || st.allow_symbols || st.enable_symbols;
+                int t9 = ed->t9 || ed->t9_mode || ed->t9_enabled || ed->predictive;
                 const char *chars;
-                if (allow_special) chars = shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+                if (t9) chars = shift ? T9_SHIFT[p] : T9_NORMAL[p];
+                else if (allow_special) chars = shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
                 else chars = shift ? PAD_MAP_SHIFT_SAFE[p] : PAD_MAP_NORMAL_SAFE[p];
                 int nchars = (int)strlen(chars);
                 if (nchars > 0) {
@@ -1014,7 +1078,7 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         labels[2] = "B3: PASTE";
     } else {
         labels[0] = "B1: CANCEL";
-        labels[1] = "";
+        labels[1] = (ed->t9 || ed->t9_mode || ed->t9_enabled || ed->predictive) ? "B2: T9 ON" : "B2: T9 OFF";
         labels[2] = "B3: OK";
     }
 
@@ -1119,6 +1183,7 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         } else if (p == 15) {
             center_text(u, cx, cy, cw, ch, "ACCEPT", hit ? UI_TEXT : 0xc0c8d8);
         } else {
+            int t9 = ed->t9 || ed->t9_mode || ed->t9_enabled || ed->predictive;
             int allow_special = ed->special_chars || ed->allow_special || ed->allow_special_chars ||
                                ed->enable_special || ed->enable_special_chars || ed->special ||
                                ed->specials || ed->allow_symbols || ed->enable_symbols ||
@@ -1126,7 +1191,8 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
                                st.enable_special || st.enable_special_chars || st.special ||
                                st.specials || st.allow_symbols || st.enable_symbols;
             const char *s;
-            if (allow_special) s = in && in->shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+            if (t9) s = in && in->shift ? T9_SHIFT[p] : T9_NORMAL[p];
+            else if (allow_special) s = in && in->shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
             else s = in && in->shift ? PAD_MAP_SHIFT_SAFE[p] : PAD_MAP_NORMAL_SAFE[p];
             int n = (int)strlen(s);
             if (is_last && ed->pad_cycle >= 0 && ed->pad_cycle < n) {

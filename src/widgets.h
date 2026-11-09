@@ -270,6 +270,11 @@ struct ui_text_editor {
     unsigned pad_lit;      // Mask of lit pad LEDs
     char *undo_buf;        // Snapshot for cancel (internal)
     unsigned undo_magic;   // Internal allocation tracking
+    // T9 predictive text mode
+    int t9;
+    int t9_mode;
+    int t9_enabled;
+    int predictive;
     // Enable special/non-alphanumeric characters (default: 0/disabled)
     int special_chars;
     int allow_special;
@@ -303,6 +308,9 @@ void ui_text_editor_paste(struct ui_text_editor *ed);
 void ui_text_editor_delete(struct ui_text_editor *ed);
 void ui_text_editor_clear(struct ui_text_editor *ed);
 void ui_text_editor_set_special(struct ui_text_editor *ed, int allow_special);
+void ui_text_editor_deinit(struct ui_text_editor *ed);
+void ui_text_editor_free(struct ui_text_editor *ed);
+void ui_text_editor_destroy(struct ui_text_editor *ed);
 
 // Draws the text editor within rect (x, y, w, h) and processes hardware inputs.
 // Soft keys bar is placed at top of rect under physical B1, B2, B3.
