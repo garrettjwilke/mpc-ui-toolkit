@@ -20,6 +20,11 @@ struct input_dev {
     int pad_down[16];
     int pad_vel[16];
     int pad_at[16];
+    int pad_threshold; // minimum velocity to trigger pad (0 = default 12)
+    int knob_deadband; // minimum delta to trigger knob/main/fader moved (0 = default 2)
+    int knob_init[3];  // 1 once initial position has been established
+    int fader_init;    // 1 once initial position has been established
+    int main_init;     // 1 once initial position has been established
 };
 
 struct input {
@@ -50,6 +55,8 @@ struct parser {
 void input_begin(struct input *f, const struct input_dev *d);
 void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]);
 int input_down(const struct input *f, int button);
+void input_set_pad_threshold(struct input_dev *d, int threshold);
+void input_set_pot_deadband(struct input_dev *d, int deadband);
 
 // 1 when msg holds a channel message. SysEx and realtime bytes are skipped.
 int parser_feed(struct parser *p, unsigned char c);

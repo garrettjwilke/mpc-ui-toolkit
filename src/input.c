@@ -41,6 +41,27 @@ void input_begin(struct input *f, const struct input_dev *d) {
     }
 }
 
+static int s_global_pad_threshold = 12;
+static int s_global_pot_deadband = 2;
+
+void input_set_pad_threshold(struct input_dev *d, int threshold) {
+    if (d) d->pad_threshold = threshold > 0 ? threshold : 12;
+    if (threshold > 0) s_global_pad_threshold = threshold;
+}
+
+void input_set_pot_deadband(struct input_dev *d, int deadband) {
+    if (d) d->knob_deadband = deadband > 0 ? deadband : 2;
+    if (deadband > 0) s_global_pot_deadband = deadband;
+}
+
+void app_set_pad_threshold(int thresh) {
+    if (thresh > 0) s_global_pad_threshold = thresh;
+}
+
+void app_set_pot_deadband(int deadband) {
+    if (deadband > 0) s_global_pot_deadband = deadband;
+}
+
 void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]) {
     int st = m[0] & 0xf0, ch = (m[0] & 0x0f) + 1, d1 = m[1], d2 = m[2];
     if (ch == 10) {
@@ -52,7 +73,8 @@ void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]) 
             f->pad_at[i] = d2;
             return;
         }
-        int down = st == 0x90 && d2 >= 4;
+        int thresh = (d && d->pad_threshold > 0) ? d->pad_threshold : s_global_pad_threshold;
+        int down = (st == 0x90 && d2 >= thresh);
         if (down) {
             if (d) d->pad_down[i] = 1, d->pad_vel[i] = d2;
             f->pad_hit[i] = d2;
@@ -69,19 +91,59 @@ void input_push(struct input_dev *d, struct input *f, const unsigned char m[3]) 
     if (ch != 1) return;
     if (st == 0xb0) {
         int v = d2 & 0x7f;
+        int deadband = (d && d->knob_deadband > 0) ? d->knob_deadband : s_global_pot_deadband;
         if (d1 >= 16 && d1 <= 18) {
             int k = d1 - 16;
-            if (d) d->knob[k] = v;
-            f->knob_moved[k] = 1;
-            f->knob[k] = v;
+            if (!d) {
+                f->knob_moved[k] = 1;
+                f->knob[k] = v;
+            } else if (!d->knob_init[k]) {
+                d->knob[k] = v;
+                d->knob_init[k] = 1;
+                f->knob_pos[k] = v;
+            } else if (v != d->knob[k]) {
+                int diff = v - d->knob[k];
+                if (diff < 0) diff = -diff;
+                if (diff >= deadband || v == 0 || v == 127) {
+                    d->knob[k] = v;
+                    f->knob_moved[k] = 1;
+                    f->knob[k] = v;
+                }
+            }
         } else if (d1 == 19) {
-            if (d) d->main = v;
-            f->main_moved = 1;
-            f->main = v;
+            if (!d) {
+                f->main_moved = 1;
+                f->main = v;
+            } else if (!d->main_init) {
+                d->main = v;
+                d->main_init = 1;
+                f->main_pos = v;
+            } else if (v != d->main) {
+                int diff = v - d->main;
+                if (diff < 0) diff = -diff;
+                if (diff >= deadband || v == 0 || v == 127) {
+                    d->main = v;
+                    f->main_moved = 1;
+                    f->main = v;
+                }
+            }
         } else if (d1 == 20) {
-            if (d) d->fader = v;
-            f->fader_moved = 1;
-            f->fader = v;
+            if (!d) {
+                f->fader_moved = 1;
+                f->fader = v;
+            } else if (!d->fader_init) {
+                d->fader = v;
+                d->fader_init = 1;
+                f->fader_pos = v;
+            } else if (v != d->fader) {
+                int diff = v - d->fader;
+                if (diff < 0) diff = -diff;
+                if (diff >= deadband || v == 0 || v == 127) {
+                    d->fader = v;
+                    f->fader_moved = 1;
+                    f->fader = v;
+                }
+            }
         } else if (d1 == 100) {
             if (v == 1) f->encoder += 1;
             else if (v == 0x7f) f->encoder -= 1;

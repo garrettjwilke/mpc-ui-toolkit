@@ -121,6 +121,73 @@ static void test_parser(void) {
     input_push(&ghost, &released, sample_off);
     expect((released.up & (1u << IN_SAMPLE)) != 0, "release on a later frame is reported");
     expect((released.held & (1u << IN_SAMPLE)) == 0, "later release clears held");
+
+    // Pad threshold and phantom strike rejection tests
+    struct input_dev pdev = {0};
+    struct input pin;
+    input_begin(&pin, &pdev);
+    unsigned char pad_low[3] = {0x99, 37, 5}; // Pad 0 (note 37), velocity 5 (below default threshold 12)
+    input_push(&pdev, &pin, pad_low);
+    expect(pin.pad_hit[0] == -1, "pad velocity below threshold 12 is rejected");
+    expect(pin.pad_down[0] == 0, "pad velocity below threshold does not set pad_down");
+
+    unsigned char pad_valid[3] = {0x99, 37, 15}; // Pad 0, velocity 15
+    input_push(&pdev, &pin, pad_valid);
+    expect(pin.pad_hit[0] == 15, "pad velocity at or above threshold is accepted");
+    expect(pin.pad_down[0] == 1, "pad velocity at or above threshold sets pad_down");
+
+    input_set_pad_threshold(&pdev, 25);
+    struct input pin2;
+    input_begin(&pin2, &pdev);
+    unsigned char pad_mid[3] = {0x99, 36, 20}; // Pad 1 (note 36), velocity 20 (below custom thresh 25)
+    input_push(&pdev, &pin2, pad_mid);
+    expect(pin2.pad_hit[1] == -1, "pad velocity below custom threshold is rejected");
+
+    unsigned char pad_high[3] = {0x99, 36, 30}; // Pad 1, velocity 30
+    input_push(&pdev, &pin2, pad_high);
+    expect(pin2.pad_hit[1] == 30, "pad velocity at or above custom threshold is accepted");
+
+    // Potentiometer deadband and baseline initialization tests
+    struct input_dev kdev = {0};
+    struct input kin;
+    input_begin(&kin, &kdev);
+    unsigned char k0_init[3] = {0xb0, 16, 64}; // K1 (CC 16) initial hardware report
+    input_push(&kdev, &kin, k0_init);
+    expect(kin.knob_moved[0] == 0, "first knob report establishes baseline without knob_moved");
+    expect(kdev.knob[0] == 64, "first knob report sets device position");
+
+    unsigned char k0_jitter[3] = {0xb0, 16, 65}; // 1-LSB delta
+    input_push(&kdev, &kin, k0_jitter);
+    expect(kin.knob_moved[0] == 0, "1-LSB knob delta is filtered as jitter");
+
+    unsigned char k0_moved[3] = {0xb0, 16, 66}; // 2-LSB delta (matches default deadband)
+    input_push(&kdev, &kin, k0_moved);
+    expect(kin.knob_moved[0] == 1, "2-LSB knob delta triggers knob_moved");
+    expect(kin.knob[0] == 66, "knob value updated");
+
+    unsigned char main_init[3] = {0xb0, 19, 80}; // Main Volume (CC 19) initial report
+    input_push(&kdev, &kin, main_init);
+    expect(kin.main_moved == 0, "first main volume report establishes baseline without main_moved");
+    expect(kdev.main == 80, "first main volume report sets device position");
+
+    unsigned char main_jitter[3] = {0xb0, 19, 81}; // 1-LSB delta
+    input_push(&kdev, &kin, main_jitter);
+    expect(kin.main_moved == 0, "1-LSB main volume delta is filtered as jitter");
+
+    unsigned char main_moved[3] = {0xb0, 19, 83}; // intentional move
+    input_push(&kdev, &kin, main_moved);
+    expect(kin.main_moved == 1, "intentional main volume move triggers main_moved");
+    expect(kin.main == 83, "main volume updated");
+
+    unsigned char fader_init[3] = {0xb0, 20, 100}; // Fader (CC 20)
+    input_push(&kdev, &kin, fader_init);
+    expect(kin.fader_moved == 0, "first fader report establishes baseline without fader_moved");
+    unsigned char fader_jitter[3] = {0xb0, 20, 99};
+    input_push(&kdev, &kin, fader_jitter);
+    expect(kin.fader_moved == 0, "1-LSB fader delta is filtered as jitter");
+    unsigned char fader_moved[3] = {0xb0, 20, 90};
+    input_push(&kdev, &kin, fader_moved);
+    expect(kin.fader_moved == 1, "intentional fader move triggers fader_moved");
 }
 
 static void test_changes(void) {
