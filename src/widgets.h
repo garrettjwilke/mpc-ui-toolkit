@@ -244,6 +244,16 @@ struct ui_text_editor_style {
     uint32_t pad_text;     // Pad text color
     uint32_t pad_active;   // Active/hit pad color
     int border_px;
+    // Enable special/non-alphanumeric characters (default: 0/disabled)
+    int special_chars;
+    int allow_special;
+    int allow_special_chars;
+    int enable_special;
+    int enable_special_chars;
+    int special;
+    int specials;
+    int allow_symbols;
+    int enable_symbols;
 };
 
 struct ui_text_editor {
@@ -258,10 +268,30 @@ struct ui_text_editor {
     int pad_cycle;         // Current cycle index on last_pad
     const char *title;     // Header title
     unsigned pad_lit;      // Mask of lit pad LEDs
+    char *undo_buf;        // Snapshot for cancel (internal)
+    unsigned undo_magic;   // Internal allocation tracking
+    // Enable special/non-alphanumeric characters (default: 0/disabled)
+    int special_chars;
+    int allow_special;
+    int allow_special_chars;
+    int enable_special;
+    int enable_special_chars;
+    int special;
+    int specials;
+    int allow_symbols;
+    int enable_symbols;
 };
 
 // Initializes editor state with target buffer and capacity
-void ui_text_editor_init(struct ui_text_editor *ed, char *buf, int max_len, const char *title);
+void ui_text_editor_init4(struct ui_text_editor *ed, char *buf, int max_len, const char *title);
+void ui_text_editor_init5(struct ui_text_editor *ed, char *buf, int max_len, const char *title, int allow_special);
+#define _UI_TE_INIT_NARG(...) _UI_TE_INIT_NARG_(__VA_ARGS__, 5, 4, 3, 2, 1, 0)
+#define _UI_TE_INIT_NARG_(a, b, c, d, e, f, ...) f
+#define _UI_TE_INIT_DISPATCH(n) _UI_TE_INIT_DISPATCH_(n)
+#define _UI_TE_INIT_DISPATCH_(n) ui_text_editor_init##n
+#define ui_text_editor_init(...) _UI_TE_INIT_DISPATCH(_UI_TE_INIT_NARG(__VA_ARGS__))(__VA_ARGS__)
+// Convenience alias
+void ui_text_editor_init_ex(struct ui_text_editor *ed, char *buf, int max_len, const char *title, int allow_special);
 
 // Default styling matching the toolkit aesthetic
 struct ui_text_editor_style ui_text_editor_style_default(void);
@@ -272,6 +302,7 @@ void ui_text_editor_copy(struct ui_text_editor *ed);
 void ui_text_editor_paste(struct ui_text_editor *ed);
 void ui_text_editor_delete(struct ui_text_editor *ed);
 void ui_text_editor_clear(struct ui_text_editor *ed);
+void ui_text_editor_set_special(struct ui_text_editor *ed, int allow_special);
 
 // Draws the text editor within rect (x, y, w, h) and processes hardware inputs.
 // Soft keys bar is placed at top of rect under physical B1, B2, B3.

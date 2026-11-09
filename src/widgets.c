@@ -2,6 +2,7 @@
 #include "font.h"
 #include "input.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int wrap(int v, int n) {
@@ -597,7 +598,7 @@ static const char *const PAD_MAP_NORMAL[16] = {
     "7890",  // Pad 11
     "_-. ",  // Pad 12 (free pad)
     "",      // Pad 13 (DEL action)
-    "/:;+",  // Pad 14
+    "",      // Pad 14 (empty)
     " ",     // Pad 15 (Space)
     ""       // Pad 16 (ACCEPT action)
 };
@@ -616,18 +617,61 @@ static const char *const PAD_MAP_SHIFT[16] = {
     "&*()",  // Pad 11
     "+=~|",  // Pad 12
     "",      // Pad 13 (CLR action)
-    "?<>\\", // Pad 14
+    "",      // Pad 14 (empty)
+    " ",     // Pad 15
+    ""       // Pad 16 (ACCEPT action)
+};
+
+static const char *const PAD_MAP_NORMAL_SAFE[16] = {
+    "abc",   // Pad 1
+    "def",   // Pad 2
+    "ghi",   // Pad 3
+    "jkl",   // Pad 4
+    "mno",   // Pad 5
+    "pqrs",  // Pad 6
+    "tuv",   // Pad 7
+    "wxyz",  // Pad 8
+    "123",   // Pad 9
+    "456",   // Pad 10
+    "7890",  // Pad 11
+    "_-. ",  // Pad 12 (safe: dot/dash/underscore/space)
+    "",      // Pad 13 (DEL action)
+    "",      // Pad 14 (empty)
+    " ",     // Pad 15 (Space)
+    ""       // Pad 16 (ACCEPT action)
+};
+
+static const char *const PAD_MAP_SHIFT_SAFE[16] = {
+    "ABC",   // Pad 1
+    "DEF",   // Pad 2
+    "GHI",   // Pad 3
+    "JKL",   // Pad 4
+    "MNO",   // Pad 5
+    "PQRS",  // Pad 6
+    "TUV",   // Pad 7
+    "WXYZ",  // Pad 8
+    "",      // Pad 9 (specials disabled)
+    "",      // Pad 10
+    "",      // Pad 11
+    "",      // Pad 12
+    "",      // Pad 13 (CLR action)
+    "",      // Pad 14 (empty)
     " ",     // Pad 15
     ""       // Pad 16 (ACCEPT action)
 };
 
 static char g_ui_clipboard[128] = {0};
 
-void ui_text_editor_init(struct ui_text_editor *ed, char *buf, int max_len, const char *title) {
+static void ui_text_editor_init_base(struct ui_text_editor *ed, char *buf, int max_len, const char *title, int allow_special) {
     if (!ed) return;
-    memset(ed, 0, sizeof *ed);
+    {
+        char *old_undo = NULL;
+        if (ed->undo_magic == 0x554e444fU && ed->undo_buf) old_undo = ed->undo_buf;
+        memset(ed, 0, sizeof *ed);
+        free(old_undo);
+    }
     ed->buf = buf;
-    ed->max_len = max_len;
+    ed->max_len = max_len > 0 ? max_len : 1;
     ed->title = title ? title : "TEXT INPUT";
     ed->len = buf ? (int)strlen(buf) : 0;
     ed->cursor = ed->len;
@@ -637,6 +681,47 @@ void ui_text_editor_init(struct ui_text_editor *ed, char *buf, int max_len, cons
     ed->last_pad = -1;
     ed->pad_cycle = 0;
     ed->pad_lit = 0;
+    ed->undo_buf = (char *)calloc((size_t)ed->max_len, 1);
+    if (ed->undo_buf && buf) {
+        memcpy(ed->undo_buf, buf, (size_t)ed->max_len);
+    }
+    ed->undo_magic = 0x554e444fU;
+    // Special characters disabled by default
+    ed->special_chars = allow_special;
+    ed->allow_special = allow_special;
+    ed->allow_special_chars = allow_special;
+    ed->enable_special = allow_special;
+    ed->enable_special_chars = allow_special;
+    ed->special = allow_special;
+    ed->specials = allow_special;
+    ed->allow_symbols = allow_special;
+    ed->enable_symbols = allow_special;
+}
+
+void ui_text_editor_init4(struct ui_text_editor *ed, char *buf, int max_len, const char *title) {
+    ui_text_editor_init_base(ed, buf, max_len, title, 0);
+}
+
+void ui_text_editor_init5(struct ui_text_editor *ed, char *buf, int max_len, const char *title, int allow_special) {
+    ui_text_editor_init_base(ed, buf, max_len, title, allow_special ? 1 : 0);
+}
+
+void ui_text_editor_init_ex(struct ui_text_editor *ed, char *buf, int max_len, const char *title, int allow_special) {
+    ui_text_editor_init_base(ed, buf, max_len, title, allow_special ? 1 : 0);
+}
+
+void ui_text_editor_set_special(struct ui_text_editor *ed, int allow_special) {
+    if (!ed) return;
+    int v = allow_special ? 1 : 0;
+    ed->special_chars = v;
+    ed->allow_special = v;
+    ed->allow_special_chars = v;
+    ed->enable_special = v;
+    ed->enable_special_chars = v;
+    ed->special = v;
+    ed->specials = v;
+    ed->allow_symbols = v;
+    ed->enable_symbols = v;
 }
 
 struct ui_text_editor_style ui_text_editor_style_default(void) {
@@ -791,22 +876,7 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         } else {
             if (input_down(in, IN_B1)) status = UI_TEXT_CANCEL;
             if (input_down(in, IN_B2)) {
-                // Insert space
-                if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
-                    ui_text_editor_delete(ed);
-                }
-                if (ed->cursor == ed->len) {
-                    if (ed->len < ed->max_len - 1) {
-                        ed->buf[ed->cursor] = ' ';
-                        ed->len++;
-                        ed->buf[ed->len] = '\0';
-                        ed->cursor++;
-                    }
-                } else {
-                    ed->buf[ed->cursor] = ' ';
-                }
-                ed->last_pad = -1;
-                ed->pad_cycle = 0;
+                // B2 intentionally does nothing (space available on pad grid)
             }
             if (input_down(in, IN_B3)) status = UI_TEXT_OK;
         }
@@ -892,7 +962,10 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
                 ed->pad_cycle = 0;
             } else {
                 // Character pad (Pads 1..14)
-                const char *chars = shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+                int allow_special = ed->special_chars || ed->allow_special || ed->allow_special_chars || ed->enable_special || ed->enable_special_chars || ed->special || ed->specials || ed->allow_symbols || ed->enable_symbols || st.special_chars || st.allow_special || st.allow_special_chars || st.enable_special || st.enable_special_chars || st.special || st.specials || st.allow_symbols || st.enable_symbols;
+                const char *chars;
+                if (allow_special) chars = shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+                else chars = shift ? PAD_MAP_SHIFT_SAFE[p] : PAD_MAP_NORMAL_SAFE[p];
                 int nchars = (int)strlen(chars);
                 if (nchars > 0) {
                     if (ed->sel_start >= 0 && ed->sel_end > ed->sel_start) {
@@ -941,7 +1014,7 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         labels[2] = "B3: PASTE";
     } else {
         labels[0] = "B1: CANCEL";
-        labels[1] = "B2: SPACE";
+        labels[1] = "";
         labels[2] = "B3: OK";
     }
 
@@ -1040,13 +1113,21 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
 
         // Pad character legend
         if (p == 12) {
-            center_text(u, cx, cy, cw, ch, in && in->shift ? "CLR" : "DEL", hit ? UI_TEXT : 0xd88080);
+            center_text(u, cx, cy, cw, ch, in && in->shift ? "CLEAR" : "DELETE", hit ? UI_TEXT : 0xd88080);
         } else if (p == 14) {
-            center_text(u, cx, cy, cw, ch, "SPC", hit ? UI_TEXT : 0xc0c8d8);
+            center_text(u, cx, cy, cw, ch, "SPACE", hit ? UI_TEXT : 0xc0c8d8);
         } else if (p == 15) {
-            center_text(u, cx, cy, cw, ch, "ACC", hit ? UI_TEXT : 0xc0c8d8);
+            center_text(u, cx, cy, cw, ch, "ACCEPT", hit ? UI_TEXT : 0xc0c8d8);
         } else {
-            const char *s = in && in->shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+            int allow_special = ed->special_chars || ed->allow_special || ed->allow_special_chars ||
+                               ed->enable_special || ed->enable_special_chars || ed->special ||
+                               ed->specials || ed->allow_symbols || ed->enable_symbols ||
+                               st.special_chars || st.allow_special || st.allow_special_chars ||
+                               st.enable_special || st.enable_special_chars || st.special ||
+                               st.specials || st.allow_symbols || st.enable_symbols;
+            const char *s;
+            if (allow_special) s = in && in->shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
+            else s = in && in->shift ? PAD_MAP_SHIFT_SAFE[p] : PAD_MAP_NORMAL_SAFE[p];
             int n = (int)strlen(s);
             if (is_last && ed->pad_cycle >= 0 && ed->pad_cycle < n) {
                 // Highlight active cycle character
@@ -1087,6 +1168,20 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
     } else {
         if (ed->pad_lit & ~lit) pads_off(u, ed->pad_lit & ~lit);
         ed->pad_lit = lit;
+    }
+
+    if (status == UI_TEXT_CANCEL && ed->undo_buf && ed->buf) {
+        memcpy(ed->buf, ed->undo_buf, (size_t)ed->max_len);
+        ed->len = (int)strlen(ed->buf);
+        if (ed->cursor > ed->len) ed->cursor = ed->len;
+        if (ed->cursor < 0) ed->cursor = 0;
+        ed->sel_anchor = -1;
+        ed->sel_start = -1;
+        ed->sel_end = -1;
+        ed->last_pad = -1;
+        ed->pad_cycle = 0;
+    } else if (status == UI_TEXT_OK && ed->undo_buf && ed->buf) {
+        memcpy(ed->undo_buf, ed->buf, (size_t)ed->max_len);
     }
 
     return status;

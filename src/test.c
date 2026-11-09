@@ -830,10 +830,7 @@ static void test_text_editor(void) {
     ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_spc_pad);
     expect(strcmp(buf, " ") == 0, "pad 15 inserts space");
 
-    struct input in_b2 = blank();
-    in_b2.down = (1u << IN_B2);
-    ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_b2);
-    expect(strcmp(buf, "  ") == 0, "b2 inserts second space");
+    // B2 no longer inserts space (space available on pad grid)
 
     // 9. Clear all via Shift + Pad 16
     struct input in_clr = blank();
