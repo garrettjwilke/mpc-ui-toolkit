@@ -589,17 +589,17 @@ static const char *const PAD_MAP_NORMAL[16] = {
     "ghi",   // Pad 3
     "jkl",   // Pad 4
     "mno",   // Pad 5
-    "pqr",   // Pad 6
-    "stu",   // Pad 7
-    "vwx",   // Pad 8
-    "yz",    // Pad 9
-    "123",   // Pad 10
-    "456",   // Pad 11
-    "7890",  // Pad 12
-    "_-. ",  // Pad 13 (top-left)
+    "pqrs",  // Pad 6
+    "tuv",   // Pad 7
+    "wxyz",  // Pad 8
+    "123",   // Pad 9
+    "456",   // Pad 10
+    "7890",  // Pad 11
+    "_-. ",  // Pad 12 (free pad)
+    "",      // Pad 13 (DEL action)
     "/:;+",  // Pad 14
     " ",     // Pad 15 (Space)
-    ""       // Pad 16 (DEL action)
+    ""       // Pad 16 (ACCEPT action)
 };
 
 static const char *const PAD_MAP_SHIFT[16] = {
@@ -608,17 +608,17 @@ static const char *const PAD_MAP_SHIFT[16] = {
     "GHI",   // Pad 3
     "JKL",   // Pad 4
     "MNO",   // Pad 5
-    "PQR",   // Pad 6
-    "STU",   // Pad 7
-    "VWX",   // Pad 8
-    "YZ",    // Pad 9
-    "!@#",   // Pad 10
-    "$%^",   // Pad 11
-    "&*()",  // Pad 12
-    "+=~|",  // Pad 13
+    "PQRS",  // Pad 6
+    "TUV",   // Pad 7
+    "WXYZ",  // Pad 8
+    "!@#",   // Pad 9
+    "$%^",   // Pad 10
+    "&*()",  // Pad 11
+    "+=~|",  // Pad 12
+    "",      // Pad 13 (CLR action)
     "?<>\\", // Pad 14
     " ",     // Pad 15
-    ""       // Pad 16 (CLR action)
+    ""       // Pad 16 (ACCEPT action)
 };
 
 static char g_ui_clipboard[128] = {0};
@@ -842,8 +842,8 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
             if (in->pad_hit[p] < 0) continue;
             int shift = in->shift;
 
-            if (p == 15) {
-                // Pad 16: DEL (or CLR if shifted)
+            if (p == 12) {
+                // Pad 13: DEL (or CLR if shifted)
                 if (shift) ui_text_editor_clear(ed);
                 else ui_text_editor_delete(ed);
             } else if (p == 14) {
@@ -860,6 +860,33 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
                     }
                 } else {
                     ed->buf[ed->cursor] = ' ';
+                }
+                ed->last_pad = -1;
+                ed->pad_cycle = 0;
+            } else if (p == 15) {
+                // Pad 16: ACCEPT -> move cursor right one (like encoder / +)
+                if (shift) {
+                    if (ed->sel_anchor < 0) ed->sel_anchor = ed->cursor;
+                    ed->cursor++;
+                    if (ed->cursor < 0) ed->cursor = 0;
+                    if (ed->cursor > ed->len) ed->cursor = ed->len;
+                    if (ed->cursor == ed->sel_anchor) {
+                        ed->sel_start = -1;
+                        ed->sel_end = -1;
+                    } else if (ed->cursor < ed->sel_anchor) {
+                        ed->sel_start = ed->cursor;
+                        ed->sel_end = ed->sel_anchor;
+                    } else {
+                        ed->sel_start = ed->sel_anchor;
+                        ed->sel_end = ed->cursor;
+                    }
+                } else {
+                    ed->sel_anchor = -1;
+                    ed->sel_start = -1;
+                    ed->sel_end = -1;
+                    ed->cursor++;
+                    if (ed->cursor < 0) ed->cursor = 0;
+                    if (ed->cursor > ed->len) ed->cursor = ed->len;
                 }
                 ed->last_pad = -1;
                 ed->pad_cycle = 0;
@@ -1012,10 +1039,12 @@ int ui_text_editor(struct ui *u, int x, int y, int w, int h, struct ui_text_edit
         ui_text(u, cx + 3, cy + 2, num_buf, 0x687080, 1);
 
         // Pad character legend
-        if (p == 14) {
+        if (p == 12) {
+            center_text(u, cx, cy, cw, ch, in && in->shift ? "CLR" : "DEL", hit ? UI_TEXT : 0xd88080);
+        } else if (p == 14) {
             center_text(u, cx, cy, cw, ch, "SPC", hit ? UI_TEXT : 0xc0c8d8);
         } else if (p == 15) {
-            center_text(u, cx, cy, cw, ch, in && in->shift ? "CLR" : "DEL", hit ? UI_TEXT : 0xd88080);
+            center_text(u, cx, cy, cw, ch, "ACC", hit ? UI_TEXT : 0xc0c8d8);
         } else {
             const char *s = in && in->shift ? PAD_MAP_SHIFT[p] : PAD_MAP_NORMAL[p];
             int n = (int)strlen(s);

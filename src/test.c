@@ -819,7 +819,7 @@ static void test_text_editor(void) {
     expect(ed.len == 1, "len 1 after erase");
 
     struct input in_del = blank();
-    in_del.pad_hit[15] = 100; // Pad 16
+    in_del.pad_hit[12] = 100; // Pad 13
     ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_del);
     expect(strcmp(buf, "") == 0, "pad 16 deletes 'B'");
     expect(ed.len == 0, "len 0 after delete");
@@ -838,7 +838,7 @@ static void test_text_editor(void) {
     // 9. Clear all via Shift + Pad 16
     struct input in_clr = blank();
     in_clr.shift = 1;
-    in_clr.pad_hit[15] = 100;
+    in_clr.pad_hit[12] = 100;
     ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_clr);
     expect(strcmp(buf, "") == 0, "shift pad 16 clears all text");
     expect(ed.len == 0, "len 0 after clear");
@@ -855,20 +855,20 @@ static void test_text_editor(void) {
     // Encoder press appends a character space and advances cursor
     ed.cursor = 0;
     struct input in_pad8 = blank();
-    in_pad8.pad_hit[7] = 100; // Pad 8 -> 'v'
+    in_pad8.pad_hit[7] = 100; // Pad 8 -> 'w'
     ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_pad8);
-    expect(strcmp(buf, "v") == 0, "pad 8 types 'v'");
-    expect(ed.len == 1 && ed.cursor == 0, "cursor at 0 on 'v'");
+    expect(strcmp(buf, "w") == 0, "pad 8 types 'w'");
+    expect(ed.len == 1 && ed.cursor == 0, "cursor at 0 on 'w'");
 
     struct input in_enc_press = blank();
     in_enc_press.encoder_press = 1;
     ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in_enc_press);
-    expect(strcmp(buf, "v ") == 0, "encoder press appends character space");
+    expect(strcmp(buf, "w ") == 0, "encoder press appends character space");
     expect(ed.len == 2 && ed.cursor == 1, "cursor advanced to 1 on space");
 
     // Typing pad 1 now replaces that space with 'a'
     ui_text_editor(&u, 0, 0, UI_W, UI_H, &ed, st, &in1);
-    expect(strcmp(buf, "va") == 0, "next pad replaces space with 'a'");
+    expect(strcmp(buf, "wa") == 0, "next pad replaces space with 'a'");
     expect(ed.len == 2 && ed.cursor == 1, "cursor remains at 1 on 'a'");
 
     // 11. Test text_edit_frame integration
